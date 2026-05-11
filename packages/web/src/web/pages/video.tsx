@@ -2,12 +2,13 @@ import { useState, useEffect } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { api } from "../lib/api";
 import { DashboardLayout } from "../components/layout/dashboard-layout";
-import { Plus, Video as VideoIcon, ExternalLink, MessageSquare } from "lucide-react";
+import { Plus, Video as VideoIcon, ExternalLink, MessageSquare, Trash2 } from "lucide-react";
 
 type VideoItem = {
   id: string;
   title: string;
   url: string | null;
+  r2Key: string;
   version: string;
   projectId: string;
   project?: { name: string };
@@ -31,6 +32,7 @@ export default function VideoPage() {
   const [form, setForm] = useState({ title: "", projectId: "", version: "V1" });
   const [file, setFile] = useState<File | null>(null);
   const [creating, setCreating] = useState(false);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
   const [searchParams] = useSearchParams();
   const filterProjectId = searchParams.get("projectId");
 
@@ -50,16 +52,16 @@ export default function VideoPage() {
     if (!form.title) return;
     setCreating(true);
     try {
-      let uploadedUrl: string | null = null;
+      let r2Key = "";
       if (file) {
-        const presignRes = await api.post("/api/videos/presign", { filename: file.name, contentType: file.type, projectId: form.projectId });
+        const presignRes = await api.post("/api/videos/presign", { filename: file.name, contentType: file.type });
         if (presignRes.ok) {
           const { url: presignUrl, key } = await presignRes.json();
           await fetch(presignUrl, { method: "PUT", body: file, headers: { "Content-Type": file.type } });
-          uploadedUrl = key;
+          r2Key = key;
         }
       }
-      const res = await api.post("/api/videos", { ...form, r2Key: uploadedUrl ?? "" });
+      const res = await api.post("/api/videos", { ...form, r2Key });
       if (res.ok) {
         const d = await res.json();
         setVideos((prev) => [d.video ?? d, ...prev]);
@@ -70,6 +72,14 @@ export default function VideoPage() {
     } finally {
       setCreating(false);
     }
+  };
+
+  const deleteVideo = async (id: string) => {
+    if (!confirm("Eliminare il video e tutti i commenti? L'azione è irreversibile.")) return;
+    setDeletingId(id);
+    const res = await api.delete(`/api/videos/${id}`);
+    if (res.ok) setVideos((prev) => prev.filter((v) => v.id !== id));
+    setDeletingId(null);
   };
 
   const displayed = filterProjectId ? videos.filter((v) => v.projectId === filterProjectId) : videos;
@@ -112,6 +122,7 @@ export default function VideoPage() {
           <div className="space-y-2">
             {displayed.map((video) => {
               const vColor = VERSION_COLORS[video.version] ?? "#6366f1";
+              const hasFile = !!video.r2Key;
               return (
                 <div
                   key={video.id}
@@ -137,16 +148,29 @@ export default function VideoPage() {
                           <MessageSquare size={11} /> {video.commentCount}
                         </span>
                       )}
+                      {!hasFile && (
+                        <span className="text-xs text-amber-500/70">⚠ nessun file</span>
+                      )}
                       <span className="text-xs text-[#444]">{new Date(video.createdAt).toLocaleDateString("it-IT")}</span>
                     </div>
                   </div>
 
-                  <Link
-                    to={`/video/${video.id}`}
-                    className="shrink-0 flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold bg-[#F5A623] text-black rounded-lg hover:bg-[#e09615] transition-colors"
-                  >
-                    <ExternalLink size={12} /> <span className="hidden sm:inline">Apri</span>
-                  </Link>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <Link
+                      to={`/video/${video.id}`}
+                      className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold bg-[#F5A623] text-black rounded-lg hover:bg-[#e09615] transition-colors"
+                    >
+                      <ExternalLink size={12} /> <span className="hidden sm:inline">Apri</span>
+                    </Link>
+                    <button
+                      onClick={() => deleteVideo(video.id)}
+                      disabled={deletingId === video.id}
+                      className="flex items-center justify-center w-8 h-8 rounded-lg border border-[rgba(255,255,255,0.07)] text-[#555] hover:border-red-500/50 hover:text-red-400 transition-colors disabled:opacity-40 bg-transparent cursor-pointer"
+                      title="Elimina video"
+                    >
+                      <Trash2 size={14} />
+                    </button>
+                  </div>
                 </div>
               );
             })}
@@ -206,8 +230,8 @@ export default function VideoPage() {
               </div>
               <div className="flex gap-2 pt-1">
                 <button
-                  onClick={() => setShowModal(false)}
-                  className="flex-1 py-2.5 text-sm font-medium text-[#a0a0a0] border border-[rgba(255,255,255,0.08)] rounded-xl hover:text-[#f5f5f5] transition-colors"
+                  onClick={() => { setShowModal(false); setFile(null); }}
+                  className="flex-1 py-2.5 text-sm font-medium text-[#a0a0a0] border border-[rgba(255,255,255,0.08)] rounded-xl hover:text-[#f5f5f5] transition-colors bg-transparent cursor-pointer"
                 >
                   Annulla
                 </button>

@@ -4,7 +4,7 @@ import * as schema from "../database/schema";
 import { eq, and, desc, asc } from "drizzle-orm";
 import { requireAuth } from "../middleware/auth";
 import { nanoid } from "../lib/id";
-import { getPresignedUploadUrl, getPresignedGetUrl } from "../lib/s3";
+import { getPresignedUploadUrl, getPresignedGetUrl, deleteObject } from "../lib/s3";
 
 async function getTenantId(userId: string) {
   const p = await db.select().from(schema.userProfiles).where(eq(schema.userProfiles.userId, userId)).get();
@@ -125,6 +125,39 @@ export const videos = new Hono()
         .where(eq(schema.videos.id, video.id));
     }
     return c.json({ shareToken: token }, 200);
+  })
+  // Update video file (replace r2Key)
+  .patch("/:id/file", requireAuth, async (c) => {
+    const user = c.get("user")!;
+    const tenantId = await getTenantId(user.id);
+    if (!tenantId) return c.json({ error: "Non trovato" }, 404);
+    const video = await db.select().from(schema.videos)
+      .where(and(eq(schema.videos.id, c.req.param("id")), eq(schema.videos.tenantId, tenantId))).get();
+    if (!video) return c.json({ error: "Non trovato" }, 404);
+    const body = await c.req.json();
+    // Delete old file from R2 if exists
+    if (video.r2Key) await deleteObject(video.r2Key);
+    const [updated] = await db.update(schema.videos)
+      .set({ r2Key: body.r2Key })
+      .where(eq(schema.videos.id, video.id))
+      .returning();
+    return c.json({ video: updated }, 200);
+  })
+  // Delete video + R2 file
+  .delete("/:id", requireAuth, async (c) => {
+    const user = c.get("user")!;
+    const tenantId = await getTenantId(user.id);
+    if (!tenantId) return c.json({ error: "Non trovato" }, 404);
+    const video = await db.select().from(schema.videos)
+      .where(and(eq(schema.videos.id, c.req.param("id")), eq(schema.videos.tenantId, tenantId))).get();
+    if (!video) return c.json({ error: "Non trovato" }, 404);
+    // Delete from R2
+    if (video.r2Key) await deleteObject(video.r2Key);
+    // Delete comments
+    await db.delete(schema.videoComments).where(eq(schema.videoComments.videoId, video.id));
+    // Delete record
+    await db.delete(schema.videos).where(eq(schema.videos.id, video.id));
+    return c.json({ ok: true }, 200);
   })
   // Comments (authenticated - pro side)
   .get("/:id/comments", requireAuth, async (c) => {

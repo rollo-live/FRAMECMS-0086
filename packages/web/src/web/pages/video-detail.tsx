@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from "react";
-import { useParams, Link } from "react-router-dom";
-import { ArrowLeft, Copy, Share2, Settings, Download, Droplets } from "lucide-react";
+import { useParams, Link, useNavigate } from "react-router-dom";
+import { ArrowLeft, Copy, Share2, Settings, Download, Droplets, Trash2, Upload } from "lucide-react";
 import { api } from "../lib/api";
 import { DashboardLayout } from "../components/layout/dashboard-layout";
 
@@ -44,6 +44,10 @@ export default function VideoDetail() {
   const [activeTimecode, setActiveTimecode] = useState<number | null>(null);
   const [showSettings, setShowSettings] = useState(false);
   const [savingSettings, setSavingSettings] = useState(false);
+  const [replaceFile, setReplaceFile] = useState<File | null>(null);
+  const [uploadingFile, setUploadingFile] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const navigate = useNavigate();
   const videoRef = useRef<HTMLVideoElement>(null);
 
   const load = useCallback(async () => {
@@ -121,6 +125,33 @@ export default function VideoDetail() {
     navigator.clipboard.writeText(`${window.location.origin}/portale/video/${video.shareToken}`);
   };
 
+  const uploadReplaceFile = async () => {
+    if (!replaceFile || !video) return;
+    setUploadingFile(true);
+    try {
+      const presignRes = await api.post("/api/videos/presign", { filename: replaceFile.name, contentType: replaceFile.type });
+      if (!presignRes.ok) return;
+      const { url: presignUrl, key } = await presignRes.json();
+      await fetch(presignUrl, { method: "PUT", body: replaceFile, headers: { "Content-Type": replaceFile.type } });
+      const res = await api.patch(`/api/videos/${id}/file`, { r2Key: key });
+      if (res.ok) {
+        setReplaceFile(null);
+        // Reload to get fresh presigned URL
+        await load();
+      }
+    } finally {
+      setUploadingFile(false);
+    }
+  };
+
+  const deleteVideo = async () => {
+    if (!confirm("Eliminare il video e tutti i commenti? L'azione è irreversibile.")) return;
+    setDeleting(true);
+    const res = await api.delete(`/api/videos/${id}`);
+    if (res.ok) navigate("/video");
+    else setDeleting(false);
+  };
+
   const saveSettings = async () => {
     if (!video) return;
     setSavingSettings(true);
@@ -195,6 +226,14 @@ export default function VideoDetail() {
 
           {/* Action buttons */}
           <div className="flex items-center gap-2 shrink-0">
+            <button
+              onClick={deleteVideo}
+              disabled={deleting}
+              className="flex items-center justify-center w-9 h-9 rounded-lg border border-[var(--border)] text-[var(--text-secondary)] hover:border-red-500/50 hover:text-red-400 transition-colors disabled:opacity-40 bg-transparent cursor-pointer"
+              title="Elimina video"
+            >
+              <Trash2 size={15} />
+            </button>
             <button
               onClick={() => setShowSettings(true)}
               className="flex items-center gap-1.5 px-3 py-2 text-sm rounded-lg border border-[var(--border)] bg-[var(--surface)] text-[var(--text-secondary)] cursor-pointer hover:text-[var(--text-primary)] hover:bg-[var(--bg)] transition-colors"
@@ -441,19 +480,47 @@ export default function VideoDetail() {
               )}
             </div>
 
-            <div className="flex justify-end gap-2 px-5 py-4 border-t border-[var(--border)]">
+              {/* Replace file */}
+              <div className="border-t border-[var(--border)] pt-4">
+                <div className="flex items-center gap-2 mb-2">
+                  <Upload size={15} className="text-[var(--text-secondary)]" />
+                  <span className="font-semibold text-sm text-[var(--text-primary)]">Sostituisci file video</span>
+                </div>
+                <p className="text-xs text-[var(--text-secondary)] mb-3">
+                  {video.r2Key ? "Carica un nuovo file — il vecchio verrà eliminato da R2." : "⚠ Nessun file associato. Carica il video."}
+                </p>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="file"
+                    accept="video/*"
+                    onChange={(e) => setReplaceFile(e.target.files?.[0] ?? null)}
+                    className="flex-1 text-xs text-[var(--text-secondary)] file:mr-2 file:py-1 file:px-2.5 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-[var(--border)] file:text-[var(--text-primary)] hover:file:bg-[var(--bg)] cursor-pointer"
+                  />
+                  {replaceFile && (
+                    <button
+                      onClick={uploadReplaceFile}
+                      disabled={uploadingFile}
+                      className="px-3 py-1.5 rounded-lg bg-[var(--primary)] text-white text-xs font-semibold cursor-pointer hover:opacity-90 disabled:opacity-50 shrink-0"
+                    >
+                      {uploadingFile ? "Upload..." : "Carica"}
+                    </button>
+                  )}
+                </div>
+              </div>
+
+            <div className="flex justify-end gap-2 pt-2 border-t border-[var(--border)] mt-2">
               <button
-                onClick={() => setShowSettings(false)}
+                onClick={() => { setShowSettings(false); setReplaceFile(null); }}
                 className="px-4 py-2 rounded-lg border border-[var(--border)] text-sm text-[var(--text-secondary)] cursor-pointer hover:bg-[var(--bg)] transition-colors bg-transparent"
               >
-                Annulla
+                Chiudi
               </button>
               <button
                 onClick={saveSettings}
                 disabled={savingSettings}
                 className="px-5 py-2 rounded-lg bg-[var(--primary)] text-white font-semibold text-sm cursor-pointer hover:opacity-90 transition-opacity disabled:opacity-50"
               >
-                {savingSettings ? "Salvataggio..." : "Salva"}
+                {savingSettings ? "Salvataggio..." : "Salva impostazioni"}
               </button>
             </div>
           </div>
