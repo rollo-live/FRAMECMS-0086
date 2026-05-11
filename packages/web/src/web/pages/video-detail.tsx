@@ -478,8 +478,6 @@ export default function VideoDetail() {
                   </div>
                 </div>
               )}
-            </div>
-
               {/* Replace file */}
               <div className="border-t border-[var(--border)] pt-4">
                 <div className="flex items-center gap-2 mb-2">
@@ -508,20 +506,22 @@ export default function VideoDetail() {
                 </div>
               </div>
 
-            <div className="flex justify-end gap-2 pt-2 border-t border-[var(--border)] mt-2">
-              <button
-                onClick={() => { setShowSettings(false); setReplaceFile(null); }}
-                className="px-4 py-2 rounded-lg border border-[var(--border)] text-sm text-[var(--text-secondary)] cursor-pointer hover:bg-[var(--bg)] transition-colors bg-transparent"
-              >
-                Chiudi
-              </button>
-              <button
-                onClick={saveSettings}
-                disabled={savingSettings}
-                className="px-5 py-2 rounded-lg bg-[var(--primary)] text-white font-semibold text-sm cursor-pointer hover:opacity-90 transition-opacity disabled:opacity-50"
-              >
-                {savingSettings ? "Salvataggio..." : "Salva impostazioni"}
-              </button>
+              {/* Footer buttons */}
+              <div className="flex justify-end gap-2 pt-2 border-t border-[var(--border)]">
+                <button
+                  onClick={() => { setShowSettings(false); setReplaceFile(null); }}
+                  className="px-4 py-2 rounded-lg border border-[var(--border)] text-sm text-[var(--text-secondary)] cursor-pointer hover:bg-[var(--bg)] transition-colors bg-transparent"
+                >
+                  Chiudi
+                </button>
+                <button
+                  onClick={saveSettings}
+                  disabled={savingSettings}
+                  className="px-5 py-2 rounded-lg bg-[var(--primary)] text-white font-semibold text-sm cursor-pointer hover:opacity-90 transition-opacity disabled:opacity-50"
+                >
+                  {savingSettings ? "Salvataggio..." : "Salva impostazioni"}
+                </button>
+              </div>
             </div>
           </div>
         </div>
