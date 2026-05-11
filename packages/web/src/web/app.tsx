@@ -1,31 +1,38 @@
 import { Routes, Route, Navigate, useNavigate } from "react-router-dom";
-import { useEffect, useState } from "react";
+import { useEffect, useState, lazy, Suspense } from "react";
 import { authClient } from "./lib/auth";
 import { AgentFeedback, RunableBadge } from "@runablehq/website-runtime";
 
-// Pages
-import Login from "./pages/login";
-import Onboarding from "./pages/onboarding";
-import Dashboard from "./pages/dashboard";
-import Clienti from "./pages/clienti";
-import Preventivi from "./pages/preventivi";
-import Contratti from "./pages/contratti";
-import Progetti from "./pages/progetti";
-import ProgettoDetail from "./pages/progetto-detail";
-import GalleryPage from "./pages/gallery";
-import GalleryDetail from "./pages/gallery-detail";
-import VideoPage from "./pages/video";
-import VideoDetail from "./pages/video-detail";
-import Impostazioni from "./pages/impostazioni";
+// Pages — lazy loaded for code splitting
+const Login = lazy(() => import("./pages/login"));
+const Onboarding = lazy(() => import("./pages/onboarding"));
+const Dashboard = lazy(() => import("./pages/dashboard"));
+const Clienti = lazy(() => import("./pages/clienti"));
+const Preventivi = lazy(() => import("./pages/preventivi"));
+const Contratti = lazy(() => import("./pages/contratti"));
+const Progetti = lazy(() => import("./pages/progetti"));
+const ProgettoDetail = lazy(() => import("./pages/progetto-detail"));
+const GalleryPage = lazy(() => import("./pages/gallery"));
+const GalleryDetail = lazy(() => import("./pages/gallery-detail"));
+const VideoPage = lazy(() => import("./pages/video"));
+const VideoDetail = lazy(() => import("./pages/video-detail"));
+const Impostazioni = lazy(() => import("./pages/impostazioni"));
 
 // Public pages
-import Firma from "./pages/firma";
-import Portale from "./pages/portale";
-import PortaleGallery from "./pages/portale-gallery";
-import PortaleVideo from "./pages/portale-video";
+const AcceptInvite = lazy(() => import("./pages/accept-invite"));
+const Firma = lazy(() => import("./pages/firma"));
+const Portale = lazy(() => import("./pages/portale"));
+const PortaleGallery = lazy(() => import("./pages/portale-gallery"));
+const PortaleVideo = lazy(() => import("./pages/portale-video"));
 
 // Sidebar layout
 import Sidebar from "./components/layout/sidebar";
+
+const PageLoader = () => (
+  <div style={{ height: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: "var(--bg-base)", color: "var(--text-secondary)", fontFamily: "Poppins, sans-serif" }}>
+    Caricamento...
+  </div>
+);
 
 function ProtectedLayout({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
@@ -62,9 +69,11 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
 function App() {
   return (
     <>
+      <Suspense fallback={<PageLoader />}>
       <Routes>
         {/* Public routes */}
         <Route path="/login" element={<Login />} />
+        <Route path="/accept-invite" element={<AcceptInvite />} />
         <Route path="/firma/:token" element={<Firma />} />
         <Route path="/portale/:token" element={<Portale />} />
         <Route path="/portale/gallery/:token" element={<PortaleGallery />} />
@@ -197,6 +206,7 @@ function App() {
         <Route path="*" element={<Navigate to="/dashboard" replace />} />
       </Routes>
 
+      </Suspense>
       {import.meta.env.DEV && <AgentFeedback />}
       {<RunableBadge />}
     </>

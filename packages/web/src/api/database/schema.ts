@@ -116,6 +116,19 @@ export const tasks = sqliteTable("tasks", {
   updatedAt: integer("updated_at", { mode: "timestamp" }).$defaultFn(() => new Date()),
 });
 
+// ─── TEAM INVITES ────────────────────────────────────────────────────────────
+export const teamInvites = sqliteTable("team_invites", {
+  id: text("id").primaryKey(),
+  tenantId: text("tenant_id").notNull().references(() => tenants.id),
+  email: text("email").notNull(),
+  role: text("role").notNull().default("staff"), // owner | staff
+  token: text("token").notNull().unique(),
+  invitedBy: text("invited_by").notNull(), // userId
+  status: text("status").notNull().default("pending"), // pending | accepted | expired
+  expiresAt: integer("expires_at", { mode: "timestamp" }),
+  createdAt: integer("created_at", { mode: "timestamp" }).$defaultFn(() => new Date()),
+});
+
 // ─── GALLERIES ────────────────────────────────────────────────────────────────
 export const galleries = sqliteTable("galleries", {
   id: text("id").primaryKey(),
@@ -126,6 +139,22 @@ export const galleries = sqliteTable("galleries", {
   downloadEnabled: integer("download_enabled", { mode: "boolean" }).notNull().default(false),
   downloadWithWatermark: integer("download_with_watermark", { mode: "boolean" }).notNull().default(true),
   shareToken: text("share_token").unique(),
+  // Access gate
+  accessGate: integer("access_gate", { mode: "boolean" }).notNull().default(false),
+  accessApproval: text("access_approval").notNull().default("auto"), // "auto" | "manual"
+  // Like limit (0 = unlimited)
+  likeLimit: integer("like_limit").notNull().default(0),
+  createdAt: integer("created_at", { mode: "timestamp" }).$defaultFn(() => new Date()),
+});
+
+export const galleryAccess = sqliteTable("gallery_access", {
+  id: text("id").primaryKey(),
+  galleryId: text("gallery_id").notNull().references(() => galleries.id),
+  firstName: text("first_name").notNull(),
+  lastName: text("last_name").notNull(),
+  email: text("email").notNull(),
+  status: text("status").notNull().default("pending"), // "pending" | "approved" | "rejected"
+  accessToken: text("access_token").notNull().unique(),
   createdAt: integer("created_at", { mode: "timestamp" }).$defaultFn(() => new Date()),
 });
 

@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useParams, Link } from "react-router-dom";
+import { ArrowLeft, Copy, Share2 } from "lucide-react";
 import { api } from "../lib/api";
 import { DashboardLayout } from "../components/layout/dashboard-layout";
 
@@ -52,12 +53,18 @@ export default function VideoDetail() {
     }
     if (cRes.ok) {
       const d = await cRes.json();
-      setComments((d.comments ?? d).sort((a: VideoComment, b: VideoComment) => a.timecodeMs - b.timecodeMs));
+      setComments(
+        (d.comments ?? d).sort(
+          (a: VideoComment, b: VideoComment) => a.timecodeMs - b.timecodeMs
+        )
+      );
     }
     setLoading(false);
   }, [id]);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    load();
+  }, [load]);
 
   const handleVideoClick = () => {
     const vid = videoRef.current;
@@ -107,267 +114,203 @@ export default function VideoDetail() {
     const res = await api.post(`/api/videos/${id}/share`);
     if (res.ok) {
       const d = await res.json();
-      setVideo((prev) => prev ? { ...prev, shareToken: d.shareToken ?? d.token } : prev);
+      setVideo((prev) =>
+        prev ? { ...prev, shareToken: d.shareToken ?? d.token } : prev
+      );
     }
   };
 
   const copyLink = () => {
     if (!video?.shareToken) return;
-    navigator.clipboard.writeText(`${window.location.origin}/portale/video/${video.shareToken}`);
+    navigator.clipboard.writeText(
+      `${window.location.origin}/portale/video/${video.shareToken}`
+    );
   };
 
-  if (loading) return <DashboardLayout><div style={{ padding: "2rem", color: "var(--text-secondary)" }}>Caricamento...</div></DashboardLayout>;
-  if (!video) return <DashboardLayout><div style={{ padding: "2rem", color: "var(--text-secondary)" }}>Video non trovato.</div></DashboardLayout>;
+  if (loading)
+    return (
+      <DashboardLayout>
+        <div className="p-6 text-[var(--text-secondary)]">Caricamento...</div>
+      </DashboardLayout>
+    );
+  if (!video)
+    return (
+      <DashboardLayout>
+        <div className="p-6 text-[var(--text-secondary)]">Video non trovato.</div>
+      </DashboardLayout>
+    );
 
   const unresolvedComments = comments.filter((c) => !c.resolved);
   const resolvedComments = comments.filter((c) => c.resolved);
 
   return (
     <DashboardLayout>
-    <div style={{ padding: "2rem", height: "100%", display: "flex", flexDirection: "column" }}>
-      {/* Header */}
-      <div style={{ display: "flex", alignItems: "center", gap: "1rem", marginBottom: "1.5rem" }}>
-        <Link to="/video" style={{ color: "var(--text-secondary)", textDecoration: "none", fontSize: "0.875rem" }}>
-          ← Video
-        </Link>
-        <div style={{ flex: 1 }}>
-          <h1 style={{ margin: 0, fontSize: "1.5rem", fontWeight: 700, color: "var(--text-primary)" }}>
-            {video.title}
-          </h1>
-          <div style={{ display: "flex", gap: "0.75rem", marginTop: "0.25rem" }}>
-            {video.project && (
-              <span style={{ fontSize: "0.875rem", color: "var(--text-secondary)" }}>{video.project.name}</span>
+      <div className="p-4 sm:p-6 lg:p-8 flex flex-col min-h-full">
+        {/* Header */}
+        <div className="flex items-start gap-3 mb-5">
+          <Link
+            to="/video"
+            className="flex items-center gap-1.5 text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors mt-1 shrink-0"
+          >
+            <ArrowLeft size={16} />
+            <span className="text-sm hidden sm:inline">Video</span>
+          </Link>
+
+          <div className="flex-1 min-w-0">
+            <h1 className="text-xl sm:text-2xl font-bold text-[var(--text-primary)] truncate">
+              {video.title}
+            </h1>
+            <div className="flex flex-wrap items-center gap-2 mt-1">
+              {video.project && (
+                <span className="text-sm text-[var(--text-secondary)]">
+                  {video.project.name}
+                </span>
+              )}
+              <span className="px-2 py-0.5 rounded-md text-xs font-bold bg-[var(--primary)22] text-[var(--primary)]">
+                {video.version}
+              </span>
+            </div>
+          </div>
+
+          {/* Share button */}
+          <div className="shrink-0">
+            {video.shareToken ? (
+              <button
+                onClick={copyLink}
+                className="flex items-center gap-1.5 px-3 py-2 text-sm rounded-lg border border-[var(--border)] bg-[var(--surface)] text-[var(--text-primary)] cursor-pointer hover:bg-[var(--bg)] transition-colors"
+              >
+                <Copy size={14} />
+                <span className="hidden sm:inline">Copia link</span>
+              </button>
+            ) : (
+              <button
+                onClick={generateShareLink}
+                className="flex items-center gap-1.5 px-3 py-2 text-sm font-semibold rounded-lg bg-[var(--primary)] text-white cursor-pointer hover:opacity-90 transition-opacity"
+              >
+                <Share2 size={14} />
+                <span className="hidden sm:inline">Genera link</span>
+              </button>
             )}
-            <span
-              style={{
-                padding: "0.1rem 0.5rem",
-                background: "var(--primary)22",
-                color: "var(--primary)",
-                borderRadius: "6px",
-                fontSize: "0.75rem",
-                fontWeight: 700,
-              }}
-            >
-              {video.version}
-            </span>
           </div>
         </div>
-        {video.shareToken ? (
-          <button
-            onClick={copyLink}
-            style={{
-              padding: "0.5rem 1rem",
-              background: "var(--surface)",
-              border: "1px solid var(--border)",
-              borderRadius: "8px",
-              color: "var(--text-primary)",
-              cursor: "pointer",
-              fontSize: "0.875rem",
-            }}
-          >
-            Copia link cliente
-          </button>
-        ) : (
-          <button
-            onClick={generateShareLink}
-            style={{
-              padding: "0.5rem 1rem",
-              background: "var(--primary)",
-              color: "#fff",
-              border: "none",
-              borderRadius: "8px",
-              cursor: "pointer",
-              fontSize: "0.875rem",
-              fontWeight: 600,
-            }}
-          >
-            Genera link
-          </button>
-        )}
-      </div>
 
-      {/* Main content */}
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 360px", gap: "1.5rem", flex: 1, overflow: "hidden" }}>
-        {/* Video player */}
-        <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
-          <div
-            style={{
-              background: "#000",
-              borderRadius: "12px",
-              overflow: "hidden",
-              position: "relative",
-              aspectRatio: "16/9",
-            }}
-          >
-            {video.url ? (
-              <video
-                ref={videoRef}
-                src={video.url}
-                controls
-                onClick={handleVideoClick}
-                style={{ width: "100%", height: "100%", objectFit: "contain" }}
-              />
-            ) : (
-              <div
-                style={{
-                  width: "100%",
-                  height: "100%",
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  color: "#666",
-                  flexDirection: "column",
-                  gap: "0.5rem",
-                }}
-              >
-                <span style={{ fontSize: "3rem" }}>🎬</span>
-                <span>Nessun video caricato</span>
+        {/* Main content: stacks vertically on mobile, side-by-side on lg */}
+        <div className="flex flex-col lg:flex-row gap-4 lg:gap-5 flex-1">
+          {/* Left: video + comment input */}
+          <div className="flex flex-col gap-4 flex-1 min-w-0">
+            {/* Video player */}
+            <div className="bg-black rounded-xl overflow-hidden aspect-video">
+              {video.url ? (
+                <video
+                  ref={videoRef}
+                  src={video.url}
+                  controls
+                  onClick={handleVideoClick}
+                  className="w-full h-full object-contain"
+                />
+              ) : (
+                <div className="w-full h-full flex flex-col items-center justify-center gap-2 text-gray-400">
+                  <span className="text-5xl">🎬</span>
+                  <span className="text-sm">Nessun video caricato</span>
+                </div>
+              )}
+            </div>
+
+            <p className="text-xs text-[var(--text-secondary)]">
+              Clicca sul video per mettere in pausa e aggiungere un commento al timecode corrente
+            </p>
+
+            {/* Comment input */}
+            <div className="bg-[var(--surface)] border border-[var(--border)] rounded-xl p-4 flex flex-col gap-3">
+              <div className="flex items-center gap-2">
+                <button
+                  className="px-2 py-1 rounded-md text-xs font-bold bg-[var(--primary)22] text-[var(--primary)] cursor-pointer"
+                  onClick={() => {
+                    const vid = videoRef.current;
+                    if (vid) setCommentTimecode(Math.floor(vid.currentTime * 1000));
+                  }}
+                >
+                  @ {formatTimecode(commentTimecode)}
+                </button>
+                <span className="text-xs text-[var(--text-secondary)]">
+                  (clicca per aggiornare dal player)
+                </span>
               </div>
-            )}
-          </div>
-          <p style={{ margin: 0, fontSize: "0.8rem", color: "var(--text-secondary)" }}>
-            Clicca sul video per mettere in pausa e aggiungere un commento al timecode corrente
-          </p>
 
-          {/* Comment input */}
-          <div
-            style={{
-              background: "var(--surface)",
-              border: "1px solid var(--border)",
-              borderRadius: "12px",
-              padding: "1.25rem",
-              display: "flex",
-              flexDirection: "column",
-              gap: "0.75rem",
-            }}
-          >
-            <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
-              <span
-                style={{
-                  padding: "0.25rem 0.6rem",
-                  background: "var(--primary)22",
-                  color: "var(--primary)",
-                  borderRadius: "6px",
-                  fontSize: "0.8rem",
-                  fontWeight: 700,
-                  cursor: "pointer",
-                }}
-                onClick={() => {
-                  const vid = videoRef.current;
-                  if (vid) setCommentTimecode(Math.floor(vid.currentTime * 1000));
-                }}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                <input
+                  value={commentName}
+                  onChange={(e) => setCommentName(e.target.value)}
+                  placeholder="Il tuo nome"
+                  className="w-full px-3 py-2 rounded-lg border border-[var(--border)] bg-[var(--bg)] text-[var(--text-primary)] text-sm focus:outline-none focus:border-[var(--primary)]"
+                />
+                <input
+                  value={commentText}
+                  onChange={(e) => setCommentText(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") postComment();
+                  }}
+                  placeholder="Scrivi un commento..."
+                  className="w-full px-3 py-2 rounded-lg border border-[var(--border)] bg-[var(--bg)] text-[var(--text-primary)] text-sm focus:outline-none focus:border-[var(--primary)]"
+                />
+              </div>
+
+              <button
+                onClick={postComment}
+                disabled={posting || !commentText.trim() || !commentName.trim()}
+                className="self-end px-5 py-2 rounded-lg bg-[var(--primary)] text-white font-semibold text-sm cursor-pointer hover:opacity-90 transition-opacity disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                @ {formatTimecode(commentTimecode)}
-              </span>
-              <span style={{ fontSize: "0.75rem", color: "var(--text-secondary)" }}>
-                (clicca per aggiornare dal player)
-              </span>
+                {posting ? "Invio..." : "Aggiungi commento"}
+              </button>
             </div>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.75rem" }}>
-              <input
-                value={commentName}
-                onChange={(e) => setCommentName(e.target.value)}
-                placeholder="Il tuo nome"
-                style={{
-                  padding: "0.5rem 0.75rem",
-                  border: "1px solid var(--border)",
-                  borderRadius: "8px",
-                  background: "var(--bg)",
-                  color: "var(--text-primary)",
-                  fontSize: "0.875rem",
-                }}
-              />
-              <input
-                value={commentText}
-                onChange={(e) => setCommentText(e.target.value)}
-                onKeyDown={(e) => { if (e.key === "Enter") postComment(); }}
-                placeholder="Scrivi un commento..."
-                style={{
-                  padding: "0.5rem 0.75rem",
-                  border: "1px solid var(--border)",
-                  borderRadius: "8px",
-                  background: "var(--bg)",
-                  color: "var(--text-primary)",
-                  fontSize: "0.875rem",
-                }}
-              />
-            </div>
-            <button
-              onClick={postComment}
-              disabled={posting || !commentText.trim() || !commentName.trim()}
-              style={{
-                alignSelf: "flex-end",
-                padding: "0.5rem 1.25rem",
-                background: "var(--primary)",
-                color: "#fff",
-                border: "none",
-                borderRadius: "8px",
-                cursor: "pointer",
-                fontWeight: 600,
-                fontSize: "0.875rem",
-                opacity: posting || !commentText.trim() || !commentName.trim() ? 0.6 : 1,
-              }}
-            >
-              {posting ? "Invio..." : "Aggiungi commento"}
-            </button>
           </div>
-        </div>
 
-        {/* Comments sidebar */}
-        <div
-          style={{
-            background: "var(--surface)",
-            border: "1px solid var(--border)",
-            borderRadius: "12px",
-            display: "flex",
-            flexDirection: "column",
-            overflow: "hidden",
-          }}
-        >
-          <div style={{ padding: "1rem 1.25rem", borderBottom: "1px solid var(--border)" }}>
-            <h3 style={{ margin: 0, color: "var(--text-primary)", fontSize: "1rem" }}>
-              Commenti ({comments.length})
-            </h3>
-          </div>
-          <div style={{ flex: 1, overflowY: "auto", padding: "1rem", display: "flex", flexDirection: "column", gap: "0.75rem" }}>
-            {comments.length === 0 ? (
-              <p style={{ color: "var(--text-secondary)", fontSize: "0.875rem", textAlign: "center", padding: "2rem 0" }}>
-                Nessun commento ancora.
-              </p>
-            ) : (
-              <>
-                {unresolvedComments.map((c) => (
-                  <CommentCard
-                    key={c.id}
-                    comment={c}
-                    active={activeTimecode === c.timecodeMs}
-                    onSeek={seekToTimecode}
-                    onResolve={resolveComment}
-                  />
-                ))}
-                {resolvedComments.length > 0 && (
-                  <>
-                    <div style={{ fontSize: "0.75rem", color: "var(--text-secondary)", padding: "0.5rem 0" }}>
-                      Risolti ({resolvedComments.length})
-                    </div>
-                    {resolvedComments.map((c) => (
-                      <CommentCard
-                        key={c.id}
-                        comment={c}
-                        active={false}
-                        onSeek={seekToTimecode}
-                        onResolve={resolveComment}
-                        dimmed
-                      />
-                    ))}
-                  </>
-                )}
-              </>
-            )}
+          {/* Right: comments panel */}
+          <div className="bg-[var(--surface)] border border-[var(--border)] rounded-xl flex flex-col overflow-hidden lg:w-[340px] lg:min-w-[340px] max-h-[60vh] lg:max-h-none">
+            <div className="px-4 py-3 border-b border-[var(--border)] shrink-0">
+              <h3 className="text-sm font-semibold text-[var(--text-primary)]">
+                Commenti ({comments.length})
+              </h3>
+            </div>
+            <div className="flex-1 overflow-y-auto p-3 flex flex-col gap-2">
+              {comments.length === 0 ? (
+                <p className="text-sm text-[var(--text-secondary)] text-center py-8">
+                  Nessun commento ancora.
+                </p>
+              ) : (
+                <>
+                  {unresolvedComments.map((c) => (
+                    <CommentCard
+                      key={c.id}
+                      comment={c}
+                      active={activeTimecode === c.timecodeMs}
+                      onSeek={seekToTimecode}
+                      onResolve={resolveComment}
+                    />
+                  ))}
+                  {resolvedComments.length > 0 && (
+                    <>
+                      <div className="text-xs text-[var(--text-secondary)] py-1">
+                        Risolti ({resolvedComments.length})
+                      </div>
+                      {resolvedComments.map((c) => (
+                        <CommentCard
+                          key={c.id}
+                          comment={c}
+                          active={false}
+                          onSeek={seekToTimecode}
+                          onResolve={resolveComment}
+                          dimmed
+                        />
+                      ))}
+                    </>
+                  )}
+                </>
+              )}
+            </div>
           </div>
         </div>
       </div>
-    </div>
     </DashboardLayout>
   );
 }
@@ -387,53 +330,35 @@ function CommentCard({
 }) {
   return (
     <div
-      style={{
-        background: active ? "var(--primary)11" : "var(--bg)",
-        border: `1px solid ${active ? "var(--primary)" : "var(--border)"}`,
-        borderRadius: "8px",
-        padding: "0.75rem",
-        opacity: dimmed ? 0.5 : 1,
-        transition: "all 0.15s",
-      }}
+      className={[
+        "rounded-lg p-3 border transition-all",
+        active
+          ? "bg-[var(--primary)11] border-[var(--primary)]"
+          : "bg-[var(--bg)] border-[var(--border)]",
+        dimmed ? "opacity-50" : "opacity-100",
+      ].join(" ")}
     >
-      <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "0.375rem" }}>
+      <div className="flex items-center gap-2 mb-1.5">
         <button
           onClick={() => onSeek(comment.timecodeMs)}
-          style={{
-            padding: "0.15rem 0.4rem",
-            background: "var(--primary)22",
-            color: "var(--primary)",
-            border: "none",
-            borderRadius: "4px",
-            cursor: "pointer",
-            fontSize: "0.7rem",
-            fontWeight: 700,
-          }}
+          className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-[var(--primary)22] text-[var(--primary)] border-none cursor-pointer"
         >
           {formatTimecode(comment.timecodeMs)}
         </button>
-        <span style={{ fontWeight: 600, fontSize: "0.8rem", color: "var(--text-primary)", flex: 1 }}>
+        <span className="flex-1 font-semibold text-sm text-[var(--text-primary)] truncate">
           {comment.authorName}
         </span>
         {!comment.resolved && (
           <button
             onClick={() => onResolve(comment.id)}
             title="Segna come risolto"
-            style={{
-              background: "none",
-              border: "1px solid var(--border)",
-              borderRadius: "4px",
-              color: "var(--text-secondary)",
-              cursor: "pointer",
-              fontSize: "0.7rem",
-              padding: "0.1rem 0.4rem",
-            }}
+            className="border border-[var(--border)] rounded px-1.5 py-0.5 text-[10px] text-[var(--text-secondary)] bg-transparent cursor-pointer hover:border-green-500 hover:text-green-500 transition-colors"
           >
             ✓
           </button>
         )}
       </div>
-      <p style={{ margin: 0, fontSize: "0.875rem", color: "var(--text-primary)" }}>{comment.content}</p>
+      <p className="m-0 text-sm text-[var(--text-primary)]">{comment.content}</p>
     </div>
   );
 }

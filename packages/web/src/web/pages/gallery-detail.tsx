@@ -2,29 +2,16 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { useParams, Link } from "react-router-dom";
 import { api } from "../lib/api";
 import { DashboardLayout } from "../components/layout/dashboard-layout";
+import { ArrowLeft, Link2, Upload, X, Check, Settings, Users } from "lucide-react";
 
-type Photo = {
-  id: string;
-  url: string;
-  filename: string;
-  likeCount: number;
-  comments?: Comment[];
-};
-
-type Comment = {
-  id: string;
-  content: string;
-  authorName: string;
-  createdAt: string;
-};
-
+type Photo = { id: string; url: string; filename: string; likeCount: number; comments?: Comment[] };
+type Comment = { id: string; content: string; authorName: string; createdAt: string };
 type Gallery = {
-  id: string;
-  name: string;
-  watermarkEnabled: boolean;
-  shareToken: string | null;
-  project?: { name: string };
+  id: string; title: string; watermarkEnabled: boolean; shareToken: string | null;
+  downloadEnabled?: boolean; accessGate?: boolean; accessApproval?: "auto" | "manual";
+  likeLimit?: number; project?: { name: string };
 };
+type AccessRequest = { id: string; firstName: string; lastName: string; email: string; status: string; createdAt: string };
 
 export default function GalleryDetail() {
   const { id } = useParams<{ id: string }>();
@@ -37,21 +24,19 @@ export default function GalleryDetail() {
   const [commentName, setCommentName] = useState("");
   const [posting, setPosting] = useState(false);
   const [dragActive, setDragActive] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
+  const [accessRequests, setAccessRequests] = useState<AccessRequest[]>([]);
+  const [loadingAccess, setLoadingAccess] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const load = useCallback(async () => {
     if (!id) return;
-    const [gRes, pRes] = await Promise.all([
-      api.get(`/api/galleries/${id}`),
-      api.get(`/api/galleries/${id}/photos`),
-    ]);
-    if (gRes.ok) {
-      const d = await gRes.json();
+    const res = await api.get(`/api/galleries/${id}`);
+    if (res.ok) {
+      const d = await res.json();
       setGallery(d.gallery ?? d);
-    }
-    if (pRes.ok) {
-      const d = await pRes.json();
-      setPhotos(d.photos ?? d);
+      setPhotos(d.photos ?? []);
     }
     setLoading(false);
   }, [id]);
@@ -61,32 +46,32 @@ export default function GalleryDetail() {
   const uploadFiles = async (files: File[]) => {
     if (!id || files.length === 0) return;
     setUploading(true);
-    for (const file of files) {
-      try {
-        // Get presigned URL
-        const presignRes = await api.post(`/api/galleries/${id}/photos/presign`, {
-          filename: file.name,
-          contentType: file.type,
-        });
-        if (!presignRes.ok) continue;
-        const { uploadUrl, photoId, url } = await presignRes.json();
+    try {
+      // 1. Batch presign
+      const presignRes = await api.post(`/api/galleries/${id}/presign`, {
+        files: files.map((f) => ({ filename: f.name, contentType: f.type })),
+      });
+      if (!presignRes.ok) { setUploading(false); return; }
+      const { urls } = await presignRes.json() as { urls: { key: string; url: string; filename: string }[] };
 
-        // Upload to R2
-        await fetch(uploadUrl, {
-          method: "PUT",
-          body: file,
-          headers: { "Content-Type": file.type },
-        });
+      // 2. Upload all files to S3 in parallel
+      await Promise.all(
+        urls.map((u, i) =>
+          fetch(u.url, { method: "PUT", body: files[i], headers: { "Content-Type": files[i].type } })
+        )
+      );
 
-        // Confirm upload
-        const confirmRes = await api.post(`/api/galleries/${id}/photos/${photoId}/confirm`, { url });
-        if (confirmRes.ok) {
-          const d = await confirmRes.json();
-          setPhotos((prev) => [...prev, d.photo ?? d]);
-        }
-      } catch (e) {
-        console.error("Upload failed", e);
+      // 3. Batch confirm — save photo records
+      const confirmRes = await api.post(`/api/galleries/${id}/photos`, {
+        photos: urls.map((u) => ({ filename: u.filename, r2Key: u.key })),
+      });
+      if (confirmRes.ok) {
+        const d = await confirmRes.json();
+        // Reload gallery to get presigned GET URLs for new photos
+        await load();
       }
+    } catch (e) {
+      console.error("Upload failed", e);
     }
     setUploading(false);
   };
@@ -96,34 +81,23 @@ export default function GalleryDetail() {
     uploadFiles(Array.from(files).filter((f) => f.type.startsWith("image/")));
   };
 
-  const loadPhotoComments = async (photoId: string) => {
-    const res = await api.get(`/api/galleries/photos/${photoId}/comments`);
-    if (res.ok) {
-      const d = await res.json();
-      setPhotos((prev) =>
-        prev.map((p) => (p.id === photoId ? { ...p, comments: d.comments ?? d } : p))
-      );
-    }
-  };
-
   const openPhoto = async (photo: Photo) => {
     setSelectedPhoto(photo);
-    await loadPhotoComments(photo.id);
+    const res = await api.get(`/api/galleries/photos/${photo.id}/comments`);
+    if (res.ok) {
+      const d = await res.json();
+      setPhotos((prev) => prev.map((p) => (p.id === photo.id ? { ...p, comments: d.comments ?? d } : p)));
+      setSelectedPhoto((prev) => prev ? { ...prev, comments: d.comments ?? d } : prev);
+    }
   };
 
   const postComment = async () => {
     if (!selectedPhoto || !comment.trim() || !commentName.trim()) return;
     setPosting(true);
-    const res = await api.post(`/api/galleries/photos/${selectedPhoto.id}/comments`, {
-      content: comment,
-      authorName: commentName,
-    });
+    const res = await api.post(`/api/galleries/photos/${selectedPhoto.id}/comments`, { content: comment, authorName: commentName });
     if (res.ok) {
       const d = await res.json();
-      const newComment = d.comment ?? d;
-      setSelectedPhoto((prev) =>
-        prev ? { ...prev, comments: [...(prev.comments ?? []), newComment] } : prev
-      );
+      setSelectedPhoto((prev) => prev ? { ...prev, comments: [...(prev.comments ?? []), d.comment ?? d] } : prev);
       setComment("");
     }
     setPosting(false);
@@ -133,7 +107,30 @@ export default function GalleryDetail() {
     if (!gallery) return;
     const newVal = !gallery.watermarkEnabled;
     setGallery({ ...gallery, watermarkEnabled: newVal });
-    await api.patch(`/api/galleries/${id}`, { watermarkEnabled: newVal });
+    await api.put(`/api/galleries/${id}`, { ...gallery, watermarkEnabled: newVal });
+  };
+
+  const updateSettings = async (patch: Partial<Gallery>) => {
+    if (!gallery) return;
+    const updated = { ...gallery, ...patch };
+    setGallery(updated);
+    await api.put(`/api/galleries/${id}`, updated);
+  };
+
+  const loadAccessRequests = async () => {
+    if (!id) return;
+    setLoadingAccess(true);
+    const res = await api.get(`/api/galleries/${id}/access`);
+    if (res.ok) {
+      const d = await res.json();
+      setAccessRequests(d.requests ?? []);
+    }
+    setLoadingAccess(false);
+  };
+
+  const handleAccessDecision = async (accessId: string, status: "approved" | "rejected") => {
+    await api.patch(`/api/galleries/${id}/access/${accessId}`, { status });
+    setAccessRequests(prev => prev.map(r => r.id === accessId ? { ...r, status } : r));
   };
 
   const generateShareLink = async () => {
@@ -147,295 +144,290 @@ export default function GalleryDetail() {
 
   const copyLink = () => {
     if (!gallery?.shareToken) return;
-    const url = `${window.location.origin}/portale/gallery/${gallery.shareToken}`;
-    navigator.clipboard.writeText(url);
+    navigator.clipboard.writeText(`${window.location.origin}/portale/gallery/${gallery.shareToken}`);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
   };
 
-  if (loading) return <DashboardLayout><div style={{ padding: "2rem", color: "var(--text-secondary)" }}>Caricamento...</div></DashboardLayout>;
-  if (!gallery) return <DashboardLayout><div style={{ padding: "2rem", color: "var(--text-secondary)" }}>Gallery non trovata.</div></DashboardLayout>;
+  if (loading) return <DashboardLayout><div className="p-4 sm:p-8 text-[#a0a0a0] text-sm">Caricamento...</div></DashboardLayout>;
+  if (!gallery) return <DashboardLayout><div className="p-4 sm:p-8 text-[#a0a0a0] text-sm">Gallery non trovata.</div></DashboardLayout>;
 
   return (
     <DashboardLayout>
-    <div style={{ padding: "2rem" }}>
-      {/* Header */}
-      <div style={{ display: "flex", alignItems: "center", gap: "1rem", marginBottom: "2rem" }}>
-        <Link to="/gallery" style={{ color: "var(--text-secondary)", textDecoration: "none", fontSize: "0.875rem" }}>
-          ← Gallery
-        </Link>
-        <div style={{ flex: 1 }}>
-          <h1 style={{ margin: 0, fontSize: "1.5rem", fontWeight: 700, color: "var(--text-primary)" }}>
-            {gallery.name}
-          </h1>
-          {gallery.project && (
-            <span style={{ fontSize: "0.875rem", color: "var(--text-secondary)" }}>{gallery.project.name}</span>
+      <div className="p-4 sm:p-6 lg:p-8">
+        {/* Header */}
+        <div className="flex flex-wrap items-center gap-3 mb-6">
+          <Link to="/gallery" className="p-1.5 rounded-lg text-[#666] hover:text-[#f5f5f5] hover:bg-[#1a1a1a] transition-colors">
+            <ArrowLeft size={16} />
+          </Link>
+          <div className="flex-1 min-w-0">
+            <h1 className="text-lg sm:text-2xl font-bold text-[#f5f5f5] truncate">{gallery.title}</h1>
+            {gallery.project && <p className="text-xs text-[#a0a0a0] mt-0.5">{gallery.project.name}</p>}
+          </div>
+          {/* Settings button */}
+          <button
+            onClick={() => { setShowSettings(s => !s); if (!showSettings && gallery.accessGate) loadAccessRequests(); }}
+            className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg border transition-all ${showSettings ? "bg-[rgba(245,166,35,0.1)] border-[rgba(245,166,35,0.3)] text-[#F5A623]" : "bg-transparent border-[rgba(255,255,255,0.08)] text-[#a0a0a0] hover:text-[#f5f5f5]"}`}
+          >
+            <Settings size={12} /> Impostazioni
+          </button>
+          {/* Share button */}
+          {gallery.shareToken ? (
+            <button
+              onClick={copyLink}
+              className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg border transition-all ${copied ? "bg-[rgba(16,185,129,0.1)] border-[rgba(16,185,129,0.3)] text-green-400" : "bg-transparent border-[rgba(255,255,255,0.08)] text-[#a0a0a0] hover:text-[#f5f5f5]"}`}
+            >
+              {copied ? <><Check size={12} /> Copiato</> : <><Link2 size={12} /> Copia link</>}
+            </button>
+          ) : (
+            <button
+              onClick={generateShareLink}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold bg-[#F5A623] text-black rounded-lg hover:bg-[#e09615] transition-colors"
+            >
+              <Link2 size={12} /> Genera link
+            </button>
           )}
         </div>
-        {/* Watermark toggle */}
-        <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
-          <span style={{ fontSize: "0.875rem", color: "var(--text-secondary)" }}>Watermark</span>
-          <button
-            onClick={toggleWatermark}
-            style={{
-              width: "44px",
-              height: "24px",
-              borderRadius: "9999px",
-              background: gallery.watermarkEnabled ? "var(--primary)" : "var(--border)",
-              border: "none",
-              cursor: "pointer",
-              position: "relative",
-              transition: "background 0.2s",
-            }}
-          >
-            <div
-              style={{
-                position: "absolute",
-                top: "2px",
-                left: gallery.watermarkEnabled ? "22px" : "2px",
-                width: "20px",
-                height: "20px",
-                borderRadius: "50%",
-                background: "#fff",
-                transition: "left 0.2s",
-              }}
-            />
-          </button>
-        </div>
-        {/* Share */}
-        {gallery.shareToken ? (
-          <button
-            onClick={copyLink}
-            style={{
-              padding: "0.5rem 1rem",
-              background: "var(--surface)",
-              border: "1px solid var(--border)",
-              borderRadius: "8px",
-              color: "var(--text-primary)",
-              cursor: "pointer",
-              fontSize: "0.875rem",
-            }}
-          >
-            Copia link cliente
-          </button>
-        ) : (
-          <button
-            onClick={generateShareLink}
-            style={{
-              padding: "0.5rem 1rem",
-              background: "var(--primary)",
-              color: "#fff",
-              border: "none",
-              borderRadius: "8px",
-              cursor: "pointer",
-              fontSize: "0.875rem",
-              fontWeight: 600,
-            }}
-          >
-            Genera link
-          </button>
-        )}
-      </div>
 
-      {/* Drop zone */}
-      <div
-        onDragOver={(e) => { e.preventDefault(); setDragActive(true); }}
-        onDragLeave={() => setDragActive(false)}
-        onDrop={(e) => { e.preventDefault(); setDragActive(false); handleFiles(e.dataTransfer.files); }}
-        onClick={() => fileInputRef.current?.click()}
-        style={{
-          border: `2px dashed ${dragActive ? "var(--primary)" : "var(--border)"}`,
-          borderRadius: "12px",
-          padding: "2rem",
-          textAlign: "center",
-          cursor: "pointer",
-          marginBottom: "2rem",
-          background: dragActive ? "var(--primary)11" : "var(--surface)",
-          transition: "all 0.15s",
-        }}
-      >
-        <input
-          ref={fileInputRef}
-          type="file"
-          accept="image/*"
-          multiple
-          style={{ display: "none" }}
-          onChange={(e) => handleFiles(e.target.files)}
-        />
-        {uploading ? (
-          <p style={{ color: "var(--primary)", margin: 0 }}>Upload in corso...</p>
-        ) : (
-          <>
-            <p style={{ margin: 0, color: "var(--text-primary)", fontWeight: 500 }}>
-              Trascina foto qui o clicca per selezionare
-            </p>
-            <p style={{ margin: "0.25rem 0 0", color: "var(--text-secondary)", fontSize: "0.8rem" }}>
-              JPG, PNG, WebP — upload multiplo supportato
-            </p>
-          </>
-        )}
-      </div>
+        {/* Settings panel */}
+        {showSettings && (
+          <div className="mb-6 bg-[#111] border border-[rgba(255,255,255,0.08)] rounded-xl p-4 space-y-4">
+            <h2 className="text-sm font-semibold text-[#f5f5f5] mb-3">Impostazioni Gallery</h2>
 
-      {/* Photo grid */}
-      {photos.length === 0 ? (
-        <p style={{ color: "var(--text-secondary)", textAlign: "center" }}>Nessuna foto ancora.</p>
-      ) : (
-        <div
-          style={{
-            display: "grid",
-            gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))",
-            gap: "0.75rem",
-          }}
-        >
-          {photos.map((photo) => (
-            <div
-              key={photo.id}
-              onClick={() => openPhoto(photo)}
-              style={{
-                position: "relative",
-                aspectRatio: "1",
-                borderRadius: "8px",
-                overflow: "hidden",
-                cursor: "pointer",
-                background: "var(--surface)",
-              }}
-            >
-              <img
-                src={photo.url}
-                alt={photo.filename}
-                style={{ width: "100%", height: "100%", objectFit: "cover" }}
-              />
-              {photo.likeCount > 0 && (
-                <div
-                  style={{
-                    position: "absolute",
-                    bottom: "0.5rem",
-                    right: "0.5rem",
-                    background: "rgba(0,0,0,0.6)",
-                    color: "#fff",
-                    borderRadius: "9999px",
-                    padding: "0.15rem 0.5rem",
-                    fontSize: "0.75rem",
-                  }}
-                >
-                  ❤️ {photo.likeCount}
+            {/* Row: Watermark + Download */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm text-[#f5f5f5] font-medium">Watermark</p>
+                  <p className="text-xs text-[#555]">Applica filigrana sulle foto</p>
                 </div>
-              )}
+                <button
+                  onClick={() => updateSettings({ watermarkEnabled: !gallery.watermarkEnabled })}
+                  className={`relative w-10 h-5 rounded-full transition-colors ${gallery.watermarkEnabled ? "bg-[#F5A623]" : "bg-[rgba(255,255,255,0.1)]"}`}
+                >
+                  <div className={`absolute top-0.5 w-4 h-4 rounded-full bg-white shadow transition-all ${gallery.watermarkEnabled ? "left-[22px]" : "left-0.5"}`} />
+                </button>
+              </div>
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm text-[#f5f5f5] font-medium">Download</p>
+                  <p className="text-xs text-[#555]">Permetti download alle foto</p>
+                </div>
+                <button
+                  onClick={() => updateSettings({ downloadEnabled: !gallery.downloadEnabled })}
+                  className={`relative w-10 h-5 rounded-full transition-colors ${gallery.downloadEnabled ? "bg-[#F5A623]" : "bg-[rgba(255,255,255,0.1)]"}`}
+                >
+                  <div className={`absolute top-0.5 w-4 h-4 rounded-full bg-white shadow transition-all ${gallery.downloadEnabled ? "left-[22px]" : "left-0.5"}`} />
+                </button>
+              </div>
             </div>
-          ))}
-        </div>
-      )}
 
-      {/* Photo detail panel */}
+            {/* Divider */}
+            <div className="border-t border-[rgba(255,255,255,0.06)]" />
+
+            {/* Access Gate */}
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm text-[#f5f5f5] font-medium">Accesso con registrazione</p>
+                <p className="text-xs text-[#555]">I visitatori devono inserire nome, cognome ed email</p>
+              </div>
+              <button
+                onClick={() => updateSettings({ accessGate: !gallery.accessGate })}
+                className={`relative w-10 h-5 rounded-full transition-colors ${gallery.accessGate ? "bg-[#F5A623]" : "bg-[rgba(255,255,255,0.1)]"}`}
+              >
+                <div className={`absolute top-0.5 w-4 h-4 rounded-full bg-white shadow transition-all ${gallery.accessGate ? "left-[22px]" : "left-0.5"}`} />
+              </button>
+            </div>
+
+            {gallery.accessGate && (
+              <div className="ml-4 space-y-3">
+                <div className="flex gap-3">
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="radio"
+                      name="approval"
+                      checked={gallery.accessApproval !== "manual"}
+                      onChange={() => updateSettings({ accessApproval: "auto" })}
+                      className="accent-[#F5A623]"
+                    />
+                    <span className="text-sm text-[#a0a0a0]">Approvazione automatica</span>
+                  </label>
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="radio"
+                      name="approval"
+                      checked={gallery.accessApproval === "manual"}
+                      onChange={() => updateSettings({ accessApproval: "manual" })}
+                      className="accent-[#F5A623]"
+                    />
+                    <span className="text-sm text-[#a0a0a0]">Approvazione manuale</span>
+                  </label>
+                </div>
+
+                {/* Access requests */}
+                <div>
+                  <div className="flex items-center gap-2 mb-2">
+                    <Users size={14} className="text-[#a0a0a0]" />
+                    <span className="text-xs font-semibold text-[#a0a0a0] uppercase tracking-wider">Richieste di accesso</span>
+                    <button onClick={loadAccessRequests} className="text-[10px] text-[#555] hover:text-[#a0a0a0] underline ml-auto">
+                      Aggiorna
+                    </button>
+                  </div>
+                  {loadingAccess ? (
+                    <p className="text-xs text-[#555]">Caricamento...</p>
+                  ) : accessRequests.length === 0 ? (
+                    <p className="text-xs text-[#555]">Nessuna richiesta ancora.</p>
+                  ) : (
+                    <div className="space-y-2">
+                      {accessRequests.map(r => (
+                        <div key={r.id} className="flex items-center gap-3 bg-[#0a0a0a] rounded-lg px-3 py-2 border border-[rgba(255,255,255,0.05)]">
+                          <div className="flex-1 min-w-0">
+                            <p className="text-xs font-medium text-[#f5f5f5] truncate">{r.firstName} {r.lastName}</p>
+                            <p className="text-[11px] text-[#555] truncate">{r.email}</p>
+                          </div>
+                          {r.status === "pending" ? (
+                            <div className="flex gap-1.5">
+                              <button
+                                onClick={() => handleAccessDecision(r.id, "approved")}
+                                className="px-2 py-1 text-[11px] font-semibold bg-[rgba(16,185,129,0.15)] text-green-400 border border-[rgba(16,185,129,0.3)] rounded-md hover:bg-[rgba(16,185,129,0.25)] transition-colors"
+                              >
+                                ✓ Approva
+                              </button>
+                              <button
+                                onClick={() => handleAccessDecision(r.id, "rejected")}
+                                className="px-2 py-1 text-[11px] font-semibold bg-[rgba(239,68,68,0.1)] text-red-400 border border-[rgba(239,68,68,0.3)] rounded-md hover:bg-[rgba(239,68,68,0.2)] transition-colors"
+                              >
+                                ✗ Nega
+                              </button>
+                            </div>
+                          ) : (
+                            <span className={`text-[11px] font-semibold px-2 py-1 rounded-md ${r.status === "approved" ? "bg-[rgba(16,185,129,0.1)] text-green-400" : "bg-[rgba(239,68,68,0.1)] text-red-400"}`}>
+                              {r.status === "approved" ? "Approvato" : "Negato"}
+                            </span>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* Divider */}
+            <div className="border-t border-[rgba(255,255,255,0.06)]" />
+
+            {/* Like Limit */}
+            <div className="flex items-center justify-between gap-4">
+              <div>
+                <p className="text-sm text-[#f5f5f5] font-medium">Limite selezioni (like)</p>
+                <p className="text-xs text-[#555]">Max foto che un cliente può selezionare (0 = illimitato)</p>
+              </div>
+              <input
+                type="number"
+                min={0}
+                max={9999}
+                value={gallery.likeLimit ?? 0}
+                onChange={e => updateSettings({ likeLimit: parseInt(e.target.value) || 0 })}
+                className="w-20 px-2 py-1.5 text-sm text-center bg-[#0a0a0a] border border-[rgba(255,255,255,0.1)] rounded-lg text-[#f5f5f5] outline-none focus:border-[rgba(245,166,35,0.5)] transition-colors"
+              />
+            </div>
+          </div>
+        )}
+
+        {/* Drop zone */}
+        <div
+          onDragOver={(e) => { e.preventDefault(); setDragActive(true); }}
+          onDragLeave={() => setDragActive(false)}
+          onDrop={(e) => { e.preventDefault(); setDragActive(false); handleFiles(e.dataTransfer.files); }}
+          onClick={() => fileInputRef.current?.click()}
+          className={`border-2 border-dashed rounded-xl p-6 text-center cursor-pointer mb-6 transition-all ${dragActive ? "border-[#F5A623] bg-[rgba(245,166,35,0.05)]" : "border-[rgba(255,255,255,0.1)] bg-[#111] hover:border-[rgba(255,255,255,0.2)]"}`}
+        >
+          <input ref={fileInputRef} type="file" accept="image/*" multiple className="hidden" onChange={(e) => handleFiles(e.target.files)} />
+          <Upload size={24} className={`mx-auto mb-2 ${dragActive ? "text-[#F5A623]" : "text-[#444]"}`} />
+          {uploading ? (
+            <p className="text-[#F5A623] text-sm font-medium">Upload in corso...</p>
+          ) : (
+            <>
+              <p className="text-sm font-medium text-[#f5f5f5]">Trascina foto qui o clicca per selezionare</p>
+              <p className="text-xs text-[#555] mt-1">JPG, PNG, WebP — upload multiplo supportato</p>
+            </>
+          )}
+        </div>
+
+        {/* Photo grid */}
+        {photos.length === 0 ? (
+          <p className="text-[#555] text-sm text-center py-8">Nessuna foto ancora.</p>
+        ) : (
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-2 sm:gap-3">
+            {photos.map((photo) => (
+              <div
+                key={photo.id}
+                onClick={() => openPhoto(photo)}
+                className="relative aspect-square rounded-lg overflow-hidden cursor-pointer bg-[#111] group"
+              >
+                <img src={photo.url} alt={photo.filename} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" />
+                {photo.likeCount > 0 && (
+                  <div className="absolute bottom-1.5 right-1.5 bg-black/70 text-white text-[10px] rounded-full px-1.5 py-0.5">
+                    ❤️ {photo.likeCount}
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Photo lightbox */}
       {selectedPhoto && (
         <div
-          style={{
-            position: "fixed",
-            inset: 0,
-            background: "rgba(0,0,0,0.85)",
-            display: "flex",
-            zIndex: 50,
-          }}
+          className="fixed inset-0 bg-black/90 flex z-50"
           onClick={(e) => { if (e.target === e.currentTarget) setSelectedPhoto(null); }}
         >
           {/* Image */}
-          <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", padding: "2rem" }}>
-            <img
-              src={selectedPhoto.url}
-              alt={selectedPhoto.filename}
-              style={{ maxWidth: "100%", maxHeight: "100%", objectFit: "contain", borderRadius: "8px" }}
-            />
+          <div className="flex-1 flex items-center justify-center p-4 min-w-0">
+            <img src={selectedPhoto.url} alt={selectedPhoto.filename} className="max-w-full max-h-full object-contain rounded-lg" />
           </div>
           {/* Comments sidebar */}
-          <div
-            style={{
-              width: "320px",
-              background: "var(--bg)",
-              borderLeft: "1px solid var(--border)",
-              display: "flex",
-              flexDirection: "column",
-              padding: "1.5rem",
-              gap: "1rem",
-            }}
-          >
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-              <h3 style={{ margin: 0, color: "var(--text-primary)" }}>Commenti</h3>
-              <button
-                onClick={() => setSelectedPhoto(null)}
-                style={{ background: "none", border: "none", color: "var(--text-secondary)", cursor: "pointer", fontSize: "1.25rem" }}
-              >
-                ×
+          <div className="w-[280px] sm:w-[320px] shrink-0 bg-[#111] border-l border-[rgba(255,255,255,0.07)] flex flex-col">
+            <div className="flex items-center justify-between px-4 py-3 border-b border-[rgba(255,255,255,0.07)]">
+              <h3 className="text-sm font-semibold text-[#f5f5f5]">Commenti</h3>
+              <button onClick={() => setSelectedPhoto(null)} className="p-1 rounded-lg text-[#666] hover:text-[#f5f5f5] hover:bg-[#1a1a1a] transition-colors">
+                <X size={16} />
               </button>
             </div>
-            <div style={{ flex: 1, overflowY: "auto", display: "flex", flexDirection: "column", gap: "0.75rem" }}>
+            <div className="flex-1 overflow-y-auto p-3 space-y-2">
               {(selectedPhoto.comments ?? []).length === 0 ? (
-                <p style={{ color: "var(--text-secondary)", fontSize: "0.875rem" }}>Nessun commento ancora.</p>
+                <p className="text-[#555] text-xs text-center py-4">Nessun commento ancora.</p>
               ) : (
                 (selectedPhoto.comments ?? []).map((c) => (
-                  <div
-                    key={c.id}
-                    style={{
-                      background: "var(--surface)",
-                      border: "1px solid var(--border)",
-                      borderRadius: "8px",
-                      padding: "0.75rem",
-                    }}
-                  >
-                    <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "0.25rem" }}>
-                      <span style={{ fontWeight: 600, fontSize: "0.8rem", color: "var(--text-primary)" }}>
-                        {c.authorName}
-                      </span>
-                      <span style={{ fontSize: "0.7rem", color: "var(--text-secondary)" }}>
-                        {new Date(c.createdAt).toLocaleDateString("it-IT")}
-                      </span>
+                  <div key={c.id} className="bg-[#0a0a0a] border border-[rgba(255,255,255,0.06)] rounded-lg p-2.5">
+                    <div className="flex justify-between items-center mb-1">
+                      <span className="text-xs font-semibold text-[#f5f5f5]">{c.authorName}</span>
+                      <span className="text-[10px] text-[#555]">{new Date(c.createdAt).toLocaleDateString("it-IT")}</span>
                     </div>
-                    <p style={{ margin: 0, fontSize: "0.875rem", color: "var(--text-primary)" }}>{c.content}</p>
+                    <p className="text-xs text-[#a0a0a0]">{c.content}</p>
                   </div>
                 ))
               )}
             </div>
-            {/* New comment */}
-            <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
+            <div className="p-3 border-t border-[rgba(255,255,255,0.07)] space-y-2">
               <input
                 value={commentName}
                 onChange={(e) => setCommentName(e.target.value)}
                 placeholder="Il tuo nome"
-                style={{
-                  padding: "0.5rem",
-                  border: "1px solid var(--border)",
-                  borderRadius: "6px",
-                  background: "var(--surface)",
-                  color: "var(--text-primary)",
-                  fontSize: "0.875rem",
-                }}
+                className="w-full px-3 py-2 text-xs bg-[#0a0a0a] border border-[rgba(255,255,255,0.08)] rounded-lg text-[#f5f5f5] placeholder:text-[#444] outline-none focus:border-[rgba(245,166,35,0.5)] transition-colors"
               />
               <textarea
                 value={comment}
                 onChange={(e) => setComment(e.target.value)}
                 placeholder="Scrivi un commento..."
                 rows={3}
-                style={{
-                  padding: "0.5rem",
-                  border: "1px solid var(--border)",
-                  borderRadius: "6px",
-                  background: "var(--surface)",
-                  color: "var(--text-primary)",
-                  fontSize: "0.875rem",
-                  resize: "none",
-                }}
+                className="w-full px-3 py-2 text-xs bg-[#0a0a0a] border border-[rgba(255,255,255,0.08)] rounded-lg text-[#f5f5f5] placeholder:text-[#444] outline-none focus:border-[rgba(245,166,35,0.5)] transition-colors resize-none"
               />
               <button
                 onClick={postComment}
                 disabled={posting || !comment.trim() || !commentName.trim()}
-                style={{
-                  padding: "0.5rem",
-                  background: "var(--primary)",
-                  color: "#fff",
-                  border: "none",
-                  borderRadius: "6px",
-                  cursor: "pointer",
-                  fontWeight: 600,
-                  fontSize: "0.875rem",
-                  opacity: posting || !comment.trim() || !commentName.trim() ? 0.6 : 1,
-                }}
+                className="w-full py-2 text-xs font-semibold bg-[#F5A623] text-black rounded-lg hover:bg-[#e09615] disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
               >
                 {posting ? "Invio..." : "Commenta"}
               </button>
@@ -443,7 +435,6 @@ export default function GalleryDetail() {
           </div>
         </div>
       )}
-    </div>
     </DashboardLayout>
   );
 }

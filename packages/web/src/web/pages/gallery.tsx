@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { api } from "../lib/api";
 import { DashboardLayout } from "../components/layout/dashboard-layout";
+import { Plus, Image as ImageIcon, Link2, Check, ExternalLink } from "lucide-react";
 
 type Gallery = {
   id: string;
@@ -26,10 +27,7 @@ export default function GalleryPage() {
   const filterProjectId = searchParams.get("projectId");
 
   useEffect(() => {
-    Promise.all([
-      api.get("/api/galleries"),
-      api.get("/api/projects"),
-    ]).then(([gRes, pRes]) => {
+    Promise.all([api.get("/api/galleries"), api.get("/api/projects")]).then(([gRes, pRes]) => {
       if (gRes.ok) gRes.json().then((d: any) => setGalleries(d.galleries ?? d));
       if (pRes.ok) pRes.json().then((d: any) => setProjects(d.projects ?? d));
       setLoading(false);
@@ -57,293 +55,142 @@ export default function GalleryPage() {
     const res = await api.post(`/api/galleries/${galleryId}/share`);
     if (res.ok) {
       const d = await res.json();
-      const token = d.shareToken ?? d.token;
-      setGalleries((prev) =>
-        prev.map((g) => (g.id === galleryId ? { ...g, shareToken: token } : g))
-      );
+      setGalleries((prev) => prev.map((g) => (g.id === galleryId ? { ...g, shareToken: d.shareToken ?? d.token } : g)));
     }
   };
 
   const copyLink = (token: string) => {
-    const url = `${window.location.origin}/portale/gallery/${token}`;
-    navigator.clipboard.writeText(url);
+    navigator.clipboard.writeText(`${window.location.origin}/portale/gallery/${token}`);
     setCopied(token);
     setTimeout(() => setCopied(null), 2000);
   };
 
-  const displayed = filterProjectId
-    ? galleries.filter((g) => g.projectId === filterProjectId)
-    : galleries;
+  const displayed = filterProjectId ? galleries.filter((g) => g.projectId === filterProjectId) : galleries;
 
   return (
     <DashboardLayout>
-    <div style={{ padding: "2rem" }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "2rem" }}>
-        <div>
-          <h1 style={{ margin: 0, fontSize: "1.5rem", fontWeight: 700, color: "var(--text-primary)" }}>Gallery</h1>
-          <p style={{ margin: "0.25rem 0 0", color: "var(--text-secondary)", fontSize: "0.875rem" }}>
-            Condividi le foto con i tuoi clienti
-          </p>
-        </div>
-        <button
-          onClick={() => setShowModal(true)}
-          style={{
-            padding: "0.625rem 1.25rem",
-            background: "var(--primary)",
-            color: "#fff",
-            border: "none",
-            borderRadius: "8px",
-            cursor: "pointer",
-            fontWeight: 600,
-            fontSize: "0.875rem",
-          }}
-        >
-          + Nuova gallery
-        </button>
-      </div>
-
-      {loading ? (
-        <p style={{ color: "var(--text-secondary)" }}>Caricamento...</p>
-      ) : displayed.length === 0 ? (
-        <div
-          style={{
-            textAlign: "center",
-            padding: "4rem",
-            background: "var(--surface)",
-            borderRadius: "12px",
-            border: "1px solid var(--border)",
-          }}
-        >
-          <p style={{ color: "var(--text-secondary)", marginBottom: "1rem" }}>
-            Nessuna gallery ancora. Creane una!
-          </p>
+      <div className="p-4 sm:p-6 lg:p-8">
+        {/* Header */}
+        <div className="flex items-start justify-between gap-3 mb-6">
+          <div>
+            <h1 className="text-xl sm:text-2xl font-bold text-[#f5f5f5]">Gallery</h1>
+            <p className="text-sm text-[#a0a0a0] mt-0.5">Condividi le foto con i tuoi clienti</p>
+          </div>
           <button
             onClick={() => setShowModal(true)}
-            style={{
-              padding: "0.625rem 1.25rem",
-              background: "var(--primary)",
-              color: "#fff",
-              border: "none",
-              borderRadius: "8px",
-              cursor: "pointer",
-              fontWeight: 600,
-            }}
+            className="flex items-center gap-1.5 px-3 sm:px-4 py-2 bg-[#F5A623] hover:bg-[#e09615] text-black text-sm font-semibold rounded-xl transition-colors shrink-0"
           >
-            + Nuova gallery
+            <Plus size={15} /> <span className="hidden sm:inline">Nuova gallery</span><span className="sm:hidden">Nuova</span>
           </button>
         </div>
-      ) : (
-        <div
-          style={{
-            display: "grid",
-            gridTemplateColumns: "repeat(auto-fill, minmax(300px, 1fr))",
-            gap: "1rem",
-          }}
-        >
-          {displayed.map((gallery) => (
-            <div
-              key={gallery.id}
-              style={{
-                background: "var(--surface)",
-                border: "1px solid var(--border)",
-                borderRadius: "12px",
-                overflow: "hidden",
-              }}
+
+        {loading ? (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+            {[...Array(3)].map((_, i) => (
+              <div key={i} className="h-52 bg-[#111] rounded-xl border border-[rgba(255,255,255,0.06)] animate-pulse" />
+            ))}
+          </div>
+        ) : displayed.length === 0 ? (
+          <div className="flex flex-col items-center justify-center py-20 bg-[#111] border border-[rgba(255,255,255,0.07)] rounded-xl text-center">
+            <ImageIcon size={36} className="text-[#333] mb-3" />
+            <p className="text-[#555] text-sm mb-4">Nessuna gallery ancora</p>
+            <button
+              onClick={() => setShowModal(true)}
+              className="flex items-center gap-1.5 px-4 py-2 bg-[#F5A623] text-black text-sm font-semibold rounded-xl hover:bg-[#e09615] transition-colors"
             >
-              {/* Preview placeholder */}
-              <div
-                style={{
-                  height: "140px",
-                  background: "linear-gradient(135deg, var(--primary)22 0%, var(--primary)11 100%)",
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  fontSize: "2rem",
-                }}
-              >
-                🖼️
-              </div>
-              <div style={{ padding: "1rem" }}>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
-                  <div>
-                    <h3 style={{ margin: 0, fontWeight: 600, color: "var(--text-primary)", fontSize: "1rem" }}>
-                      {gallery.name}
-                    </h3>
-                    {gallery.project && (
-                      <span style={{ fontSize: "0.75rem", color: "var(--text-secondary)" }}>
-                        {gallery.project.name}
-                      </span>
+              <Plus size={14} /> Crea la prima gallery
+            </button>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+            {displayed.map((gallery) => (
+              <div key={gallery.id} className="bg-[#111] border border-[rgba(255,255,255,0.07)] rounded-xl overflow-hidden hover:border-[rgba(255,255,255,0.12)] transition-colors">
+                {/* Preview */}
+                <div className="h-36 bg-gradient-to-br from-[rgba(245,166,35,0.1)] to-[rgba(245,166,35,0.05)] flex items-center justify-center">
+                  <ImageIcon size={32} className="text-[rgba(245,166,35,0.3)]" />
+                </div>
+                <div className="p-4">
+                  <div className="flex items-start justify-between gap-2 mb-3">
+                    <div className="min-w-0">
+                      <h3 className="font-semibold text-[#f5f5f5] text-sm truncate">{gallery.name}</h3>
+                      {gallery.project && (
+                        <p className="text-xs text-[#a0a0a0] mt-0.5 truncate">{gallery.project.name}</p>
+                      )}
+                    </div>
+                    <span className="shrink-0 text-xs text-[#666] bg-[rgba(255,255,255,0.05)] px-2 py-0.5 rounded-full">
+                      {gallery.photoCount ?? 0} foto
+                    </span>
+                  </div>
+                  <div className="flex gap-2">
+                    <Link
+                      to={`/gallery/${gallery.id}`}
+                      className="flex-1 flex items-center justify-center gap-1.5 py-2 text-xs font-semibold bg-[#F5A623] text-black rounded-lg hover:bg-[#e09615] transition-colors"
+                    >
+                      <ExternalLink size={12} /> Apri
+                    </Link>
+                    {gallery.shareToken ? (
+                      <button
+                        onClick={() => copyLink(gallery.shareToken!)}
+                        className={`flex-1 flex items-center justify-center gap-1.5 py-2 text-xs font-semibold rounded-lg border transition-all ${copied === gallery.shareToken ? "bg-[rgba(16,185,129,0.1)] border-[rgba(16,185,129,0.3)] text-green-400" : "bg-transparent border-[rgba(255,255,255,0.08)] text-[#a0a0a0] hover:text-[#f5f5f5]"}`}
+                      >
+                        {copied === gallery.shareToken ? <><Check size={12} /> Copiato</> : <><Link2 size={12} /> Copia link</>}
+                      </button>
+                    ) : (
+                      <button
+                        onClick={() => generateShareLink(gallery.id)}
+                        className="flex-1 flex items-center justify-center gap-1.5 py-2 text-xs font-semibold bg-transparent border border-[rgba(255,255,255,0.08)] text-[#a0a0a0] hover:text-[#f5f5f5] rounded-lg transition-colors"
+                      >
+                        <Link2 size={12} /> Genera link
+                      </button>
                     )}
                   </div>
-                  <span
-                    style={{
-                      fontSize: "0.75rem",
-                      color: "var(--text-secondary)",
-                      background: "var(--border)",
-                      padding: "0.2rem 0.5rem",
-                      borderRadius: "9999px",
-                    }}
-                  >
-                    {gallery.photoCount ?? 0} foto
-                  </span>
-                </div>
-
-                <div style={{ display: "flex", gap: "0.5rem", marginTop: "1rem" }}>
-                  <Link
-                    to={`/gallery/${gallery.id}`}
-                    style={{
-                      flex: 1,
-                      padding: "0.5rem",
-                      background: "var(--primary)",
-                      color: "#fff",
-                      border: "none",
-                      borderRadius: "6px",
-                      cursor: "pointer",
-                      fontSize: "0.8rem",
-                      fontWeight: 600,
-                      textDecoration: "none",
-                      textAlign: "center",
-                    }}
-                  >
-                    Apri
-                  </Link>
-                  {gallery.shareToken ? (
-                    <button
-                      onClick={() => copyLink(gallery.shareToken!)}
-                      style={{
-                        flex: 1,
-                        padding: "0.5rem",
-                        background: copied === gallery.shareToken ? "#10b981" : "var(--surface)",
-                        color: copied === gallery.shareToken ? "#fff" : "var(--text-primary)",
-                        border: "1px solid var(--border)",
-                        borderRadius: "6px",
-                        cursor: "pointer",
-                        fontSize: "0.8rem",
-                        transition: "all 0.15s",
-                      }}
-                    >
-                      {copied === gallery.shareToken ? "Copiato!" : "Copia link"}
-                    </button>
-                  ) : (
-                    <button
-                      onClick={() => generateShareLink(gallery.id)}
-                      style={{
-                        flex: 1,
-                        padding: "0.5rem",
-                        background: "var(--surface)",
-                        color: "var(--text-primary)",
-                        border: "1px solid var(--border)",
-                        borderRadius: "6px",
-                        cursor: "pointer",
-                        fontSize: "0.8rem",
-                      }}
-                    >
-                      Genera link
-                    </button>
-                  )}
                 </div>
               </div>
-            </div>
-          ))}
-        </div>
-      )}
+            ))}
+          </div>
+        )}
+      </div>
 
-      {/* Create modal */}
+      {/* Modal */}
       {showModal && (
         <div
-          style={{
-            position: "fixed",
-            inset: 0,
-            background: "rgba(0,0,0,0.5)",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            zIndex: 50,
-          }}
+          className="fixed inset-0 bg-black/60 flex items-end sm:items-center justify-center z-50 p-4"
           onClick={(e) => { if (e.target === e.currentTarget) setShowModal(false); }}
         >
-          <div
-            style={{
-              background: "var(--bg)",
-              border: "1px solid var(--border)",
-              borderRadius: "16px",
-              padding: "2rem",
-              width: "100%",
-              maxWidth: "420px",
-            }}
-          >
-            <h2 style={{ margin: "0 0 1.5rem", color: "var(--text-primary)" }}>Nuova gallery</h2>
-            <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
+          <div className="bg-[#111] border border-[rgba(255,255,255,0.1)] rounded-2xl p-6 w-full max-w-md">
+            <h2 className="text-lg font-bold text-[#f5f5f5] mb-5">Nuova gallery</h2>
+            <div className="space-y-4">
               <div>
-                <label style={{ fontSize: "0.875rem", color: "var(--text-secondary)", display: "block", marginBottom: "0.375rem" }}>
-                  Nome gallery
-                </label>
+                <label className="text-xs font-semibold text-[#a0a0a0] uppercase tracking-wide block mb-1.5">Nome gallery</label>
                 <input
                   value={form.name}
                   onChange={(e) => setForm({ ...form, name: e.target.value })}
                   placeholder="es. Matrimonio Rossi - Foto finali"
-                  style={{
-                    width: "100%",
-                    padding: "0.625rem",
-                    border: "1px solid var(--border)",
-                    borderRadius: "8px",
-                    background: "var(--surface)",
-                    color: "var(--text-primary)",
-                    fontSize: "0.875rem",
-                    boxSizing: "border-box",
-                  }}
+                  className="w-full px-3 py-2.5 text-sm bg-[#0a0a0a] border border-[rgba(255,255,255,0.08)] rounded-xl text-[#f5f5f5] placeholder:text-[#444] outline-none focus:border-[rgba(245,166,35,0.5)] transition-colors"
                 />
               </div>
               <div>
-                <label style={{ fontSize: "0.875rem", color: "var(--text-secondary)", display: "block", marginBottom: "0.375rem" }}>
-                  Progetto
-                </label>
+                <label className="text-xs font-semibold text-[#a0a0a0] uppercase tracking-wide block mb-1.5">Progetto (opzionale)</label>
                 <select
                   value={form.projectId}
                   onChange={(e) => setForm({ ...form, projectId: e.target.value })}
-                  style={{
-                    width: "100%",
-                    padding: "0.625rem",
-                    border: "1px solid var(--border)",
-                    borderRadius: "8px",
-                    background: "var(--surface)",
-                    color: "var(--text-primary)",
-                    fontSize: "0.875rem",
-                  }}
+                  className="w-full px-3 py-2.5 text-sm bg-[#0a0a0a] border border-[rgba(255,255,255,0.08)] rounded-xl text-[#f5f5f5] outline-none focus:border-[rgba(245,166,35,0.5)] transition-colors"
                 >
-                  <option value="">Seleziona progetto</option>
-                  {projects.map((p) => (
-                    <option key={p.id} value={p.id}>{p.name}</option>
-                  ))}
+                  <option value="">Nessun progetto</option>
+                  {projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
                 </select>
               </div>
-              <div style={{ display: "flex", gap: "0.75rem", justifyContent: "flex-end" }}>
+              <div className="flex gap-2 pt-1">
                 <button
                   onClick={() => setShowModal(false)}
-                  style={{
-                    padding: "0.625rem 1.25rem",
-                    background: "transparent",
-                    color: "var(--text-secondary)",
-                    border: "1px solid var(--border)",
-                    borderRadius: "8px",
-                    cursor: "pointer",
-                  }}
+                  className="flex-1 py-2.5 text-sm font-medium text-[#a0a0a0] border border-[rgba(255,255,255,0.08)] rounded-xl hover:text-[#f5f5f5] transition-colors"
                 >
                   Annulla
                 </button>
                 <button
                   onClick={createGallery}
                   disabled={creating || !form.name}
-                  style={{
-                    padding: "0.625rem 1.25rem",
-                    background: "var(--primary)",
-                    color: "#fff",
-                    border: "none",
-                    borderRadius: "8px",
-                    cursor: creating ? "wait" : "pointer",
-                    fontWeight: 600,
-                    opacity: creating || !form.name ? 0.6 : 1,
-                  }}
+                  className="flex-1 py-2.5 text-sm font-semibold bg-[#F5A623] text-black rounded-xl hover:bg-[#e09615] disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                 >
                   {creating ? "Creazione..." : "Crea gallery"}
                 </button>
@@ -352,7 +199,6 @@ export default function GalleryPage() {
           </div>
         </div>
       )}
-    </div>
     </DashboardLayout>
   );
 }

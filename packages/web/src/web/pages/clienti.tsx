@@ -47,7 +47,7 @@ export default function ClientiPage() {
 
   return (
     <DashboardLayout>
-      <div className="p-8">
+      <div className="p-4 sm:p-6 lg:p-8">
         <PageHeader
           title="Clienti & Lead"
           subtitle={`${clients.filter(c => c.type === "client").length} clienti · ${clients.filter(c => c.type === "lead").length} lead`}

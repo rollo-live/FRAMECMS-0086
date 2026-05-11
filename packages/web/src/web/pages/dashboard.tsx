@@ -5,7 +5,7 @@ import { DashboardLayout, PageHeader } from "../components/layout/dashboard-layo
 import { Card } from "../components/ui/card";
 import { Badge } from "../components/ui/card";
 import { Link } from "react-router-dom";
-import { Users, FolderOpen, CheckSquare, TrendingUp, ArrowRight, Camera, Film } from "lucide-react";
+import { Users, FolderOpen, CheckSquare, TrendingUp, ArrowRight, Camera, Film, Clock, AlertCircle, Circle } from "lucide-react";
 import { authClient } from "../lib/auth";
 
 function StatCard({ icon: Icon, label, value, sub }: { icon: any; label: string; value: string | number; sub?: string }) {
@@ -23,27 +23,63 @@ function StatCard({ icon: Icon, label, value, sub }: { icon: any; label: string;
   );
 }
 
+const priorityColor: Record<string, string> = {
+  high: "text-red-400",
+  medium: "text-yellow-400",
+  low: "text-[#555]",
+};
+
+const statusLabel: Record<string, string> = {
+  todo: "Da fare",
+  doing: "In corso",
+  review: "Revisione",
+  done: "Fatto",
+};
+
+const statusDot: Record<string, string> = {
+  todo: "bg-[#333]",
+  doing: "bg-blue-500",
+  review: "bg-yellow-500",
+  done: "bg-green-500",
+};
+
 export default function DashboardPage() {
   const { data: session } = authClient.useSession();
   const { data: clientsData } = useQuery({ queryKey: ["clients"], queryFn: async () => (await api.get("/api/clients")).json() });
   const { data: projectsData } = useQuery({ queryKey: ["projects"], queryFn: async () => (await api.get("/api/projects")).json() });
   const { data: quotesData } = useQuery({ queryKey: ["quotes"], queryFn: async () => (await api.get("/api/quotes")).json() });
+  const { data: tasksData } = useQuery({ queryKey: ["all-tasks"], queryFn: async () => (await api.get("/api/tasks")).json() });
 
   const clients = (clientsData as any)?.clients ?? [];
   const projects = (projectsData as any)?.projects ?? [];
   const quotes = (quotesData as any)?.quotes ?? [];
+  const allTasks: any[] = (tasksData as any)?.tasks ?? [];
 
   const activeProjects = projects.filter((p: any) => p.status === "active" || p.status === "planning");
   const pendingQuotes = quotes.filter((q: any) => q.status === "draft" || q.status === "sent");
 
-  const statusColor: Record<string, any> = {
+  // Task da completare: todo + doing, ordinati per priorità (high first) poi dueDate
+  const pendingTasks = allTasks
+    .filter((t) => t.status !== "done")
+    .sort((a, b) => {
+      const pOrder: Record<string, number> = { high: 0, medium: 1, low: 2 };
+      const pa = pOrder[a.priority] ?? 1;
+      const pb = pOrder[b.priority] ?? 1;
+      if (pa !== pb) return pa - pb;
+      if (a.dueDate && b.dueDate) return new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime();
+      if (a.dueDate) return -1;
+      if (b.dueDate) return 1;
+      return 0;
+    });
+
+  const projectStatusColor: Record<string, any> = {
     planning: "warning",
     active: "success",
     in_review: "accent",
     completed: "default",
     archived: "default",
   };
-  const statusLabel: Record<string, string> = {
+  const projectStatusLabel: Record<string, string> = {
     planning: "Pianificazione",
     active: "Attivo",
     in_review: "In revisione",
@@ -51,9 +87,14 @@ export default function DashboardPage() {
     archived: "Archiviato",
   };
 
+  const isOverdue = (dueDate: any) => {
+    if (!dueDate) return false;
+    return new Date(dueDate) < new Date();
+  };
+
   return (
     <DashboardLayout>
-      <div className="p-8">
+      <div className="p-4 sm:p-6 lg:p-8">
         <PageHeader
           title={`Ciao, ${session?.user?.name?.split(" ")[0] ?? "..."} 👋`}
           subtitle="Ecco una panoramica del tuo studio"
@@ -64,17 +105,17 @@ export default function DashboardPage() {
           <StatCard icon={Users} label="Clienti totali" value={clients.filter((c: any) => c.type === "client").length} />
           <StatCard icon={TrendingUp} label="Lead attivi" value={clients.filter((c: any) => c.type === "lead").length} />
           <StatCard icon={FolderOpen} label="Progetti attivi" value={activeProjects.length} />
-          <StatCard icon={CheckSquare} label="Preventivi in attesa" value={pendingQuotes.length} />
+          <StatCard icon={CheckSquare} label="Task da completare" value={pendingTasks.length} />
         </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
           {/* Progetti recenti */}
           <Card>
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-sm font-semibold text-[#f5f5f5]">Progetti recenti</h2>
               <Link to="/progetti" className="text-xs text-[#F5A623] hover:underline flex items-center gap-1">
-                  Vedi tutti <ArrowRight size={12} />
-                </Link>
+                Vedi tutti <ArrowRight size={12} />
+              </Link>
             </div>
             {projects.length === 0 ? (
               <div className="py-8 text-center text-[#555] text-sm">
@@ -91,7 +132,7 @@ export default function DashboardPage() {
                     <div className="flex-1 min-w-0">
                       <p className="text-sm font-medium text-[#f5f5f5] truncate">{p.name}</p>
                     </div>
-                    <Badge variant={statusColor[p.status] ?? "default"}>{statusLabel[p.status] ?? p.status}</Badge>
+                    <Badge variant={projectStatusColor[p.status] ?? "default"}>{projectStatusLabel[p.status] ?? p.status}</Badge>
                   </Link>
                 ))}
               </div>
@@ -103,8 +144,8 @@ export default function DashboardPage() {
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-sm font-semibold text-[#f5f5f5]">Preventivi recenti</h2>
               <Link to="/preventivi" className="text-xs text-[#F5A623] hover:underline flex items-center gap-1">
-                  Vedi tutti <ArrowRight size={12} />
-                </Link>
+                Vedi tutti <ArrowRight size={12} />
+              </Link>
             </div>
             {quotes.length === 0 ? (
               <div className="py-8 text-center text-[#555] text-sm">
@@ -131,6 +172,68 @@ export default function DashboardPage() {
             )}
           </Card>
         </div>
+
+        {/* Task da completare */}
+        <Card>
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-sm font-semibold text-[#f5f5f5]">Task da completare</h2>
+            <span className="text-xs text-[#555]">{pendingTasks.length} task aperti</span>
+          </div>
+          {pendingTasks.length === 0 ? (
+            <div className="py-8 text-center text-[#555] text-sm">
+              <CheckSquare size={32} className="mx-auto mb-2 opacity-30" />
+              <p>Nessun task in sospeso — tutto fatto! 🎉</p>
+            </div>
+          ) : (
+            <div className="divide-y divide-[#1a1a1a]">
+              {pendingTasks.slice(0, 10).map((task: any) => (
+                <Link
+                  key={task.id}
+                  to={`/progetti/${task.projectId}`}
+                  className="flex items-start gap-3 py-3 hover:bg-[#1a1a1a] px-2 -mx-2 rounded-xl transition-colors group"
+                >
+                  {/* Status dot */}
+                  <div className="mt-1 shrink-0">
+                    <div className={`w-2.5 h-2.5 rounded-full ${statusDot[task.status] ?? "bg-[#333]"}`} />
+                  </div>
+
+                  {/* Content */}
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium text-[#f5f5f5] leading-snug">{task.title}</p>
+                    <div className="flex items-center gap-2 mt-1 flex-wrap">
+                      {task.projectName && (
+                        <span className="text-xs text-[#555] truncate max-w-[140px]">{task.projectName}</span>
+                      )}
+                      <span className="text-xs text-[#333]">·</span>
+                      <span className="text-xs text-[#555]">{statusLabel[task.status] ?? task.status}</span>
+                    </div>
+                  </div>
+
+                  {/* Right side */}
+                  <div className="flex items-center gap-2 shrink-0">
+                    {/* Priority */}
+                    <span className={`text-xs font-medium ${priorityColor[task.priority] ?? "text-[#555]"}`}>
+                      {task.priority === "high" ? "Alta" : task.priority === "medium" ? "Media" : "Bassa"}
+                    </span>
+
+                    {/* Due date */}
+                    {task.dueDate && (
+                      <div className={`flex items-center gap-1 text-xs ${isOverdue(task.dueDate) ? "text-red-400" : "text-[#666]"}`}>
+                        {isOverdue(task.dueDate) ? <AlertCircle size={11} /> : <Clock size={11} />}
+                        {new Date(task.dueDate).toLocaleDateString("it-IT", { day: "numeric", month: "short" })}
+                      </div>
+                    )}
+                  </div>
+                </Link>
+              ))}
+              {pendingTasks.length > 10 && (
+                <p className="text-xs text-[#555] text-center pt-3">
+                  +{pendingTasks.length - 10} altri task — vai ai progetti per vederli tutti
+                </p>
+              )}
+            </div>
+          )}
+        </Card>
       </div>
     </DashboardLayout>
   );

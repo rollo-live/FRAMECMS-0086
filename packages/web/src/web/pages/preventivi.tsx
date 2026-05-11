@@ -53,7 +53,7 @@ export default function PreventiviPage() {
 
   return (
     <DashboardLayout>
-      <div className="p-8">
+      <div className="p-4 sm:p-6 lg:p-8">
         <PageHeader
           title="Preventivi"
           subtitle={`${quotes.length} preventivi totali`}

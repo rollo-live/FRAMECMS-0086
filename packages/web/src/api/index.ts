@@ -10,6 +10,8 @@ import { projects } from "./routes/projects";
 import { galleries } from "./routes/galleries";
 import { videos } from "./routes/videos";
 import { portal } from "./routes/portal";
+import { tasks } from "./routes/tasks";
+import { team } from "./routes/team";
 
 const app = new Hono()
   .use(cors({ origin: "*", credentials: true }))
@@ -24,6 +26,8 @@ const app = new Hono()
   .route("/projects", projects)
   .route("/galleries", galleries)
   .route("/videos", videos)
+  .route("/tasks", tasks)
+  .route("/team", team)
   .route("/portal", portal)
   .route("/client-portal", portal);
 
