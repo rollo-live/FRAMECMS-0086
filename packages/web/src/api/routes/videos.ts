@@ -105,6 +105,9 @@ export const videos = new Hono()
     const [video] = await db.update(schema.videos).set({
       title: body.title,
       version: body.version,
+      allowDownload: body.allowDownload ?? true,
+      watermarkEnabled: body.watermarkEnabled ?? false,
+      watermarkText: body.watermarkText ?? null,
     }).where(and(eq(schema.videos.id, c.req.param("id")), eq(schema.videos.tenantId, tenantId))).returning();
     return c.json({ video }, 200);
   })

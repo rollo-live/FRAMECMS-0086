@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useParams, Link } from "react-router-dom";
-import { ArrowLeft, Copy, Share2 } from "lucide-react";
+import { ArrowLeft, Copy, Share2, Settings, Download, Droplets } from "lucide-react";
 import { api } from "../lib/api";
 import { DashboardLayout } from "../components/layout/dashboard-layout";
 
@@ -19,6 +19,9 @@ type VideoItem = {
   url: string | null;
   version: string;
   shareToken: string | null;
+  allowDownload: boolean;
+  watermarkEnabled: boolean;
+  watermarkText: string | null;
   project?: { name: string };
 };
 
@@ -39,6 +42,8 @@ export default function VideoDetail() {
   const [commentTimecode, setCommentTimecode] = useState(0);
   const [posting, setPosting] = useState(false);
   const [activeTimecode, setActiveTimecode] = useState<number | null>(null);
+  const [showSettings, setShowSettings] = useState(false);
+  const [savingSettings, setSavingSettings] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
 
   const load = useCallback(async () => {
@@ -62,16 +67,13 @@ export default function VideoDetail() {
     setLoading(false);
   }, [id]);
 
-  useEffect(() => {
-    load();
-  }, [load]);
+  useEffect(() => { load(); }, [load]);
 
   const handleVideoClick = () => {
     const vid = videoRef.current;
     if (!vid) return;
     vid.pause();
-    const ms = Math.floor(vid.currentTime * 1000);
-    setCommentTimecode(ms);
+    setCommentTimecode(Math.floor(vid.currentTime * 1000));
     setActiveTimecode(null);
   };
 
@@ -85,9 +87,8 @@ export default function VideoDetail() {
     });
     if (res.ok) {
       const d = await res.json();
-      const newComment = d.comment ?? d;
       setComments((prev) =>
-        [...prev, newComment].sort((a, b) => a.timecodeMs - b.timecodeMs)
+        [...prev, d.comment ?? d].sort((a, b) => a.timecodeMs - b.timecodeMs)
       );
       setCommentText("");
     }
@@ -103,10 +104,7 @@ export default function VideoDetail() {
 
   const seekToTimecode = (ms: number) => {
     const vid = videoRef.current;
-    if (vid) {
-      vid.currentTime = ms / 1000;
-      vid.play();
-    }
+    if (vid) { vid.currentTime = ms / 1000; vid.play(); }
     setActiveTimecode(ms);
   };
 
@@ -114,17 +112,31 @@ export default function VideoDetail() {
     const res = await api.post(`/api/videos/${id}/share`);
     if (res.ok) {
       const d = await res.json();
-      setVideo((prev) =>
-        prev ? { ...prev, shareToken: d.shareToken ?? d.token } : prev
-      );
+      setVideo((prev) => prev ? { ...prev, shareToken: d.shareToken ?? d.token } : prev);
     }
   };
 
   const copyLink = () => {
     if (!video?.shareToken) return;
-    navigator.clipboard.writeText(
-      `${window.location.origin}/portale/video/${video.shareToken}`
-    );
+    navigator.clipboard.writeText(`${window.location.origin}/portale/video/${video.shareToken}`);
+  };
+
+  const saveSettings = async () => {
+    if (!video) return;
+    setSavingSettings(true);
+    const res = await api.put(`/api/videos/${id}`, {
+      title: video.title,
+      version: video.version,
+      allowDownload: video.allowDownload,
+      watermarkEnabled: video.watermarkEnabled,
+      watermarkText: video.watermarkText,
+    });
+    if (res.ok) {
+      const d = await res.json();
+      setVideo((prev) => prev ? { ...prev, ...(d.video ?? d) } : prev);
+      setShowSettings(false);
+    }
+    setSavingSettings(false);
   };
 
   if (loading)
@@ -162,18 +174,35 @@ export default function VideoDetail() {
             </h1>
             <div className="flex flex-wrap items-center gap-2 mt-1">
               {video.project && (
-                <span className="text-sm text-[var(--text-secondary)]">
-                  {video.project.name}
-                </span>
+                <span className="text-sm text-[var(--text-secondary)]">{video.project.name}</span>
               )}
               <span className="px-2 py-0.5 rounded-md text-xs font-bold bg-[var(--primary)22] text-[var(--primary)]">
                 {video.version}
               </span>
+              {/* Status badges */}
+              {video.allowDownload && (
+                <span className="flex items-center gap-1 px-2 py-0.5 rounded-md text-xs bg-blue-500/10 text-blue-400">
+                  <Download size={10} /> Download HD
+                </span>
+              )}
+              {video.watermarkEnabled && (
+                <span className="flex items-center gap-1 px-2 py-0.5 rounded-md text-xs bg-purple-500/10 text-purple-400">
+                  <Droplets size={10} /> Watermark
+                </span>
+              )}
             </div>
           </div>
 
-          {/* Share button */}
-          <div className="shrink-0">
+          {/* Action buttons */}
+          <div className="flex items-center gap-2 shrink-0">
+            <button
+              onClick={() => setShowSettings(true)}
+              className="flex items-center gap-1.5 px-3 py-2 text-sm rounded-lg border border-[var(--border)] bg-[var(--surface)] text-[var(--text-secondary)] cursor-pointer hover:text-[var(--text-primary)] hover:bg-[var(--bg)] transition-colors"
+              title="Impostazioni"
+            >
+              <Settings size={14} />
+              <span className="hidden sm:inline">Impostazioni</span>
+            </button>
             {video.shareToken ? (
               <button
                 onClick={copyLink}
@@ -194,7 +223,7 @@ export default function VideoDetail() {
           </div>
         </div>
 
-        {/* Main content: stacks vertically on mobile, side-by-side on lg */}
+        {/* Main content */}
         <div className="flex flex-col lg:flex-row gap-4 lg:gap-5 flex-1">
           {/* Left: video + comment input */}
           <div className="flex flex-col gap-4 flex-1 min-w-0">
@@ -232,11 +261,8 @@ export default function VideoDetail() {
                 >
                   @ {formatTimecode(commentTimecode)}
                 </button>
-                <span className="text-xs text-[var(--text-secondary)]">
-                  (clicca per aggiornare dal player)
-                </span>
+                <span className="text-xs text-[var(--text-secondary)]">(clicca per aggiornare dal player)</span>
               </div>
-
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                 <input
                   value={commentName}
@@ -247,14 +273,11 @@ export default function VideoDetail() {
                 <input
                   value={commentText}
                   onChange={(e) => setCommentText(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") postComment();
-                  }}
+                  onKeyDown={(e) => { if (e.key === "Enter") postComment(); }}
                   placeholder="Scrivi un commento..."
                   className="w-full px-3 py-2 rounded-lg border border-[var(--border)] bg-[var(--bg)] text-[var(--text-primary)] text-sm focus:outline-none focus:border-[var(--primary)]"
                 />
               </div>
-
               <button
                 onClick={postComment}
                 disabled={posting || !commentText.trim() || !commentName.trim()}
@@ -280,13 +303,7 @@ export default function VideoDetail() {
               ) : (
                 <>
                   {unresolvedComments.map((c) => (
-                    <CommentCard
-                      key={c.id}
-                      comment={c}
-                      active={activeTimecode === c.timecodeMs}
-                      onSeek={seekToTimecode}
-                      onResolve={resolveComment}
-                    />
+                    <CommentCard key={c.id} comment={c} active={activeTimecode === c.timecodeMs} onSeek={seekToTimecode} onResolve={resolveComment} />
                   ))}
                   {resolvedComments.length > 0 && (
                     <>
@@ -294,14 +311,7 @@ export default function VideoDetail() {
                         Risolti ({resolvedComments.length})
                       </div>
                       {resolvedComments.map((c) => (
-                        <CommentCard
-                          key={c.id}
-                          comment={c}
-                          active={false}
-                          onSeek={seekToTimecode}
-                          onResolve={resolveComment}
-                          dimmed
-                        />
+                        <CommentCard key={c.id} comment={c} active={false} onSeek={seekToTimecode} onResolve={resolveComment} dimmed />
                       ))}
                     </>
                   )}
@@ -311,16 +321,150 @@ export default function VideoDetail() {
           </div>
         </div>
       </div>
+
+      {/* Settings modal */}
+      {showSettings && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+          <div className="bg-[var(--surface)] border border-[var(--border)] rounded-2xl w-full max-w-md shadow-2xl">
+            <div className="flex items-center justify-between px-5 py-4 border-b border-[var(--border)]">
+              <h2 className="font-semibold text-[var(--text-primary)] flex items-center gap-2">
+                <Settings size={16} /> Impostazioni video
+              </h2>
+              <button
+                onClick={() => setShowSettings(false)}
+                className="text-[var(--text-secondary)] hover:text-[var(--text-primary)] text-lg leading-none cursor-pointer bg-transparent border-none"
+              >
+                ×
+              </button>
+            </div>
+
+            <div className="p-5 flex flex-col gap-5">
+              {/* Download HD */}
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <div className="flex items-center gap-2 mb-0.5">
+                    <Download size={15} className="text-blue-400" />
+                    <span className="font-semibold text-sm text-[var(--text-primary)]">Download HD</span>
+                  </div>
+                  <p className="text-xs text-[var(--text-secondary)]">
+                    Il cliente può scaricare il video in alta qualità dal portale
+                  </p>
+                </div>
+                <button
+                  onClick={() => setVideo((v) => v ? { ...v, allowDownload: !v.allowDownload } : v)}
+                  className={[
+                    "relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200",
+                    video.allowDownload ? "bg-[var(--primary)]" : "bg-[var(--border)]",
+                  ].join(" ")}
+                  role="switch"
+                  aria-checked={video.allowDownload}
+                >
+                  <span
+                    className={[
+                      "pointer-events-none inline-block h-5 w-5 rounded-full bg-white shadow-lg transform transition duration-200",
+                      video.allowDownload ? "translate-x-5" : "translate-x-0",
+                    ].join(" ")}
+                  />
+                </button>
+              </div>
+
+              {/* Watermark */}
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <div className="flex items-center gap-2 mb-0.5">
+                    <Droplets size={15} className="text-purple-400" />
+                    <span className="font-semibold text-sm text-[var(--text-primary)]">Watermark</span>
+                  </div>
+                  <p className="text-xs text-[var(--text-secondary)]">
+                    Sovrappone un watermark al video nel portale cliente
+                  </p>
+                </div>
+                <button
+                  onClick={() => setVideo((v) => v ? { ...v, watermarkEnabled: !v.watermarkEnabled } : v)}
+                  className={[
+                    "relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200",
+                    video.watermarkEnabled ? "bg-[var(--primary)]" : "bg-[var(--border)]",
+                  ].join(" ")}
+                  role="switch"
+                  aria-checked={video.watermarkEnabled}
+                >
+                  <span
+                    className={[
+                      "pointer-events-none inline-block h-5 w-5 rounded-full bg-white shadow-lg transform transition duration-200",
+                      video.watermarkEnabled ? "translate-x-5" : "translate-x-0",
+                    ].join(" ")}
+                  />
+                </button>
+              </div>
+
+              {/* Watermark text (shown when enabled) */}
+              {video.watermarkEnabled && (
+                <div className="rounded-xl border border-[var(--border)] bg-[var(--bg)] p-4 flex flex-col gap-3">
+                  <p className="text-xs text-[var(--text-secondary)]">
+                    Lascia vuoto per usare il logo del tuo studio. Oppure inserisci un testo personalizzato.
+                  </p>
+                  <input
+                    value={video.watermarkText ?? ""}
+                    onChange={(e) => setVideo((v) => v ? { ...v, watermarkText: e.target.value || null } : v)}
+                    placeholder="Es. © Studio XYZ — Anteprima riservata"
+                    className="w-full px-3 py-2 rounded-lg border border-[var(--border)] bg-[var(--surface)] text-[var(--text-primary)] text-sm focus:outline-none focus:border-[var(--primary)]"
+                  />
+                  {/* Preview */}
+                  <div className="relative bg-black rounded-lg overflow-hidden" style={{ aspectRatio: "16/9" }}>
+                    <div className="w-full h-full flex items-center justify-center text-gray-600 text-xs">
+                      [anteprima video]
+                    </div>
+                    <div
+                      className="absolute inset-0 flex items-center justify-center pointer-events-none select-none"
+                      style={{
+                        background: "transparent",
+                      }}
+                    >
+                      <span
+                        style={{
+                          color: "rgba(255,255,255,0.35)",
+                          fontSize: "clamp(10px, 2.5vw, 16px)",
+                          fontWeight: 700,
+                          letterSpacing: "0.08em",
+                          textTransform: "uppercase",
+                          transform: "rotate(-25deg)",
+                          userSelect: "none",
+                          textShadow: "0 1px 4px rgba(0,0,0,0.5)",
+                          whiteSpace: "nowrap",
+                        }}
+                      >
+                        {video.watermarkText || "© Il tuo studio"}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <div className="flex justify-end gap-2 px-5 py-4 border-t border-[var(--border)]">
+              <button
+                onClick={() => setShowSettings(false)}
+                className="px-4 py-2 rounded-lg border border-[var(--border)] text-sm text-[var(--text-secondary)] cursor-pointer hover:bg-[var(--bg)] transition-colors bg-transparent"
+              >
+                Annulla
+              </button>
+              <button
+                onClick={saveSettings}
+                disabled={savingSettings}
+                className="px-5 py-2 rounded-lg bg-[var(--primary)] text-white font-semibold text-sm cursor-pointer hover:opacity-90 transition-opacity disabled:opacity-50"
+              >
+                {savingSettings ? "Salvataggio..." : "Salva"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </DashboardLayout>
   );
 }
 
 function CommentCard({
-  comment,
-  active,
-  onSeek,
-  onResolve,
-  dimmed,
+  comment, active, onSeek, onResolve, dimmed,
 }: {
   comment: VideoComment;
   active: boolean;
@@ -332,9 +476,7 @@ function CommentCard({
     <div
       className={[
         "rounded-lg p-3 border transition-all",
-        active
-          ? "bg-[var(--primary)11] border-[var(--primary)]"
-          : "bg-[var(--bg)] border-[var(--border)]",
+        active ? "bg-[var(--primary)11] border-[var(--primary)]" : "bg-[var(--bg)] border-[var(--border)]",
         dimmed ? "opacity-50" : "opacity-100",
       ].join(" ")}
     >

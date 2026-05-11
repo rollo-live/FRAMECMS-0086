@@ -191,6 +191,9 @@ export const videos = sqliteTable("videos", {
   r2Key: text("r2_key").notNull().default(""),
   duration: real("duration"),
   shareToken: text("share_token").unique(),
+  allowDownload: integer("allow_download", { mode: "boolean" }).notNull().default(true),
+  watermarkEnabled: integer("watermark_enabled", { mode: "boolean" }).notNull().default(false),
+  watermarkText: text("watermark_text"),
   createdAt: integer("created_at", { mode: "timestamp" }).$defaultFn(() => new Date()),
 });
 

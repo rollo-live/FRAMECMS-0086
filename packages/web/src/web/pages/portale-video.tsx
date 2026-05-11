@@ -16,6 +16,9 @@ type VideoData = {
     title: string;
     url: string | null;
     version: string;
+    allowDownload: boolean;
+    watermarkEnabled: boolean;
+    watermarkText: string | null;
   };
   comments: VideoComment[];
   tenant: { brandName: string; primaryColor: string; logoUrl: string | null };
@@ -174,6 +177,7 @@ export default function PortaleVideo() {
               overflow: "hidden",
               aspectRatio: "16/9",
               flex: "0 0 auto",
+              position: "relative",
             }}
           >
             {data.video.url ? (
@@ -201,11 +205,82 @@ export default function PortaleVideo() {
                 <span style={{ fontSize: "0.875rem" }}>Video non disponibile</span>
               </div>
             )}
+            {/* Watermark overlay */}
+            {data.video.watermarkEnabled && (
+              <div
+                style={{
+                  position: "absolute",
+                  inset: 0,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  pointerEvents: "none",
+                  userSelect: "none",
+                }}
+              >
+                {data.tenant.logoUrl && !data.video.watermarkText ? (
+                  <img
+                    src={data.tenant.logoUrl}
+                    alt="watermark"
+                    style={{
+                      maxWidth: "25%",
+                      maxHeight: "25%",
+                      objectFit: "contain",
+                      opacity: 0.25,
+                      filter: "grayscale(100%) brightness(200%)",
+                    }}
+                  />
+                ) : (
+                  <span
+                    style={{
+                      color: "rgba(255,255,255,0.3)",
+                      fontSize: "clamp(12px, 2.5vw, 20px)",
+                      fontWeight: 700,
+                      letterSpacing: "0.08em",
+                      textTransform: "uppercase",
+                      transform: "rotate(-25deg)",
+                      textShadow: "0 1px 4px rgba(0,0,0,0.6)",
+                      whiteSpace: "nowrap",
+                    }}
+                  >
+                    {data.video.watermarkText || data.tenant.brandName}
+                  </span>
+                )}
+              </div>
+            )}
           </div>
 
-          <p style={{ margin: 0, fontSize: "0.75rem", color: "#64748b" }}>
-            Clicca sul video per mettere in pausa e aggiungere un feedback al momento attuale
-          </p>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "0.5rem" }}>
+            <p style={{ margin: 0, fontSize: "0.75rem", color: "#64748b" }}>
+              Clicca sul video per mettere in pausa e aggiungere un feedback al momento attuale
+            </p>
+            {/* Download button */}
+            {data.video.allowDownload && data.video.url && (
+              <a
+                href={data.video.url}
+                download
+                target="_blank"
+                rel="noreferrer"
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "0.375rem",
+                  padding: "0.375rem 0.875rem",
+                  background: primaryColor + "22",
+                  color: primaryColor,
+                  border: `1px solid ${primaryColor}44`,
+                  borderRadius: "8px",
+                  fontSize: "0.75rem",
+                  fontWeight: 600,
+                  textDecoration: "none",
+                  whiteSpace: "nowrap",
+                  cursor: "pointer",
+                }}
+              >
+                ↓ Download HD
+              </a>
+            )}
+          </div>
 
           {/* Comment input */}
           <div
