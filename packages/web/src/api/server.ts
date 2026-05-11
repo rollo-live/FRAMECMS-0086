@@ -2,7 +2,7 @@ import { Hono } from "hono";
 import { join } from "path";
 import app from "./index";
 
-const port = Number(process.env.PORT) || 3000;
+const port = Number(process.env.PORT) || 8080;
 const distDir = join(import.meta.dir, "../../dist");
 
 // Production server: Hono API + static React build
