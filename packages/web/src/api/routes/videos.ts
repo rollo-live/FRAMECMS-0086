@@ -21,7 +21,17 @@ export const videos = new Hono()
     const comments = await db.select().from(schema.videoComments)
       .where(eq(schema.videoComments.videoId, video.id))
       .orderBy(asc(schema.videoComments.timecodeMs));
-    return c.json({ video: { ...video, url }, comments }, 200);
+    const tenant = await db.select().from(schema.tenants)
+      .where(eq(schema.tenants.id, video.tenantId)).get();
+    return c.json({
+      video: { ...video, url },
+      comments,
+      tenant: {
+        brandName: tenant?.name ?? "Frame",
+        primaryColor: tenant?.primaryColor ?? "#F5A623",
+        logoUrl: tenant?.logo ?? null,
+      },
+    }, 200);
   })
   .post("/shared/:token/comments", async (c) => {
     const video = await db.select().from(schema.videos)
