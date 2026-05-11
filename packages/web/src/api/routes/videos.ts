@@ -12,6 +12,38 @@ async function getTenantId(userId: string) {
 }
 
 export const videos = new Hono()
+  // ─── Public routes (must be before /:id) ───────────────────────────────────
+  .get("/shared/:token", async (c) => {
+    const video = await db.select().from(schema.videos)
+      .where(eq(schema.videos.shareToken, c.req.param("token"))).get();
+    if (!video) return c.json({ error: "Non trovato" }, 404);
+    const url = video.r2Key ? await getPresignedGetUrl(video.r2Key, 7200) : null;
+    const comments = await db.select().from(schema.videoComments)
+      .where(eq(schema.videoComments.videoId, video.id))
+      .orderBy(asc(schema.videoComments.timecodeMs));
+    return c.json({ video: { ...video, url }, comments }, 200);
+  })
+  .post("/shared/:token/comments", async (c) => {
+    const video = await db.select().from(schema.videos)
+      .where(eq(schema.videos.shareToken, c.req.param("token"))).get();
+    if (!video) return c.json({ error: "Non trovato" }, 404);
+    const body = await c.req.json();
+    const ct = body.clientToken
+      ? await db.select().from(schema.clientTokens).where(eq(schema.clientTokens.token, body.clientToken)).get()
+      : null;
+    const client = ct ? await db.select().from(schema.clients).where(eq(schema.clients.id, ct.clientId)).get() : null;
+    const [comment] = await db.insert(schema.videoComments).values({
+      id: nanoid(),
+      videoId: video.id,
+      clientId: ct?.clientId,
+      authorName: client?.name ?? body.authorName ?? "Cliente",
+      timecodeMs: body.timecodeMs,
+      text: body.content ?? body.text,
+    }).returning();
+    return c.json({ comment }, 201);
+  })
+
+  // ─── Authenticated routes ───────────────────────────────────────────────────
   .get("/", requireAuth, async (c) => {
     const user = c.get("user")!;
     const tenantId = await getTenantId(user.id);
@@ -48,6 +80,10 @@ export const videos = new Hono()
     }).returning();
     return c.json({ video }, 201);
   })
+  .post("/share", requireAuth, async (c) => {
+    // fallback share endpoint (not used but kept for safety)
+    return c.json({ error: "Usa /api/videos/:id/share" }, 400);
+  })
   .get("/:id", requireAuth, async (c) => {
     const user = c.get("user")!;
     const tenantId = await getTenantId(user.id);
@@ -55,7 +91,7 @@ export const videos = new Hono()
     const video = await db.select().from(schema.videos)
       .where(and(eq(schema.videos.id, c.req.param("id")), eq(schema.videos.tenantId, tenantId))).get();
     if (!video) return c.json({ error: "Non trovato" }, 404);
-    const url = await getPresignedGetUrl(video.r2Key, 7200);
+    const url = video.r2Key ? await getPresignedGetUrl(video.r2Key, 7200) : null;
     const comments = await db.select().from(schema.videoComments)
       .where(eq(schema.videoComments.videoId, video.id))
       .orderBy(asc(schema.videoComments.timecodeMs));
@@ -72,6 +108,21 @@ export const videos = new Hono()
     }).where(and(eq(schema.videos.id, c.req.param("id")), eq(schema.videos.tenantId, tenantId))).returning();
     return c.json({ video }, 200);
   })
+  .post("/:id/share", requireAuth, async (c) => {
+    const user = c.get("user")!;
+    const tenantId = await getTenantId(user.id);
+    if (!tenantId) return c.json({ error: "Non trovato" }, 404);
+    const video = await db.select().from(schema.videos)
+      .where(and(eq(schema.videos.id, c.req.param("id")), eq(schema.videos.tenantId, tenantId))).get();
+    if (!video) return c.json({ error: "Non trovato" }, 404);
+    // Return existing token or generate new one
+    const token = video.shareToken ?? nanoid(32);
+    if (!video.shareToken) {
+      await db.update(schema.videos).set({ shareToken: token })
+        .where(eq(schema.videos.id, video.id));
+    }
+    return c.json({ shareToken: token }, 200);
+  })
   // Comments (authenticated - pro side)
   .get("/:id/comments", requireAuth, async (c) => {
     const comments = await db.select().from(schema.videoComments)
@@ -85,47 +136,18 @@ export const videos = new Hono()
     const [comment] = await db.insert(schema.videoComments).values({
       id: nanoid(),
       videoId: c.req.param("id"),
-      authorName: user.name,
+      authorName: body.authorName ?? user.name,
       timecodeMs: body.timecodeMs,
-      text: body.text,
+      text: body.content ?? body.text,
     }).returning();
     return c.json({ comment }, 201);
   })
-  .put("/comments/:commentId/resolve", requireAuth, async (c) => {
+  // PATCH /:id/comments/:commentId — resolve (matches frontend call)
+  .patch("/:id/comments/:commentId", requireAuth, async (c) => {
+    const body = await c.req.json();
     const [comment] = await db.update(schema.videoComments)
-      .set({ resolved: true })
+      .set({ resolved: body.resolved ?? true })
       .where(eq(schema.videoComments.id, c.req.param("commentId")))
       .returning();
     return c.json({ comment }, 200);
-  })
-  // Public: video by share token
-  .get("/shared/:token", async (c) => {
-    const video = await db.select().from(schema.videos)
-      .where(eq(schema.videos.shareToken, c.req.param("token"))).get();
-    if (!video) return c.json({ error: "Non trovato" }, 404);
-    const url = await getPresignedGetUrl(video.r2Key, 7200);
-    const comments = await db.select().from(schema.videoComments)
-      .where(eq(schema.videoComments.videoId, video.id))
-      .orderBy(asc(schema.videoComments.timecodeMs));
-    return c.json({ video: { ...video, url }, comments }, 200);
-  })
-  // Public: comment on video (client portal)
-  .post("/shared/:token/comments", async (c) => {
-    const video = await db.select().from(schema.videos)
-      .where(eq(schema.videos.shareToken, c.req.param("token"))).get();
-    if (!video) return c.json({ error: "Non trovato" }, 404);
-    const body = await c.req.json();
-    const ct = body.clientToken
-      ? await db.select().from(schema.clientTokens).where(eq(schema.clientTokens.token, body.clientToken)).get()
-      : null;
-    const client = ct ? await db.select().from(schema.clients).where(eq(schema.clients.id, ct.clientId)).get() : null;
-    const [comment] = await db.insert(schema.videoComments).values({
-      id: nanoid(),
-      videoId: video.id,
-      clientId: ct?.clientId,
-      authorName: client?.name ?? body.authorName ?? "Cliente",
-      timecodeMs: body.timecodeMs,
-      text: body.text,
-    }).returning();
-    return c.json({ comment }, 201);
   });

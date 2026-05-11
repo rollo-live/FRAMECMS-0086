@@ -54,12 +54,12 @@ export default function VideoPage() {
       if (file) {
         const presignRes = await api.post("/api/videos/presign", { filename: file.name, contentType: file.type, projectId: form.projectId });
         if (presignRes.ok) {
-          const { uploadUrl, url } = await presignRes.json();
-          await fetch(uploadUrl, { method: "PUT", body: file, headers: { "Content-Type": file.type } });
-          uploadedUrl = url;
+          const { url: presignUrl, key } = await presignRes.json();
+          await fetch(presignUrl, { method: "PUT", body: file, headers: { "Content-Type": file.type } });
+          uploadedUrl = key;
         }
       }
-      const res = await api.post("/api/videos", { ...form, url: uploadedUrl });
+      const res = await api.post("/api/videos", { ...form, r2Key: uploadedUrl ?? "" });
       if (res.ok) {
         const d = await res.json();
         setVideos((prev) => [d.video ?? d, ...prev]);
