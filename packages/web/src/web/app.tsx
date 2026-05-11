@@ -75,9 +75,9 @@ function App() {
         <Route path="/login" element={<Login />} />
         <Route path="/accept-invite" element={<AcceptInvite />} />
         <Route path="/firma/:token" element={<Firma />} />
-        <Route path="/portale/:token" element={<Portale />} />
         <Route path="/portale/gallery/:token" element={<PortaleGallery />} />
         <Route path="/portale/video/:token" element={<PortaleVideo />} />
+        <Route path="/portale/:token" element={<Portale />} />
 
         {/* Onboarding (requires auth but no sidebar) */}
         <Route
