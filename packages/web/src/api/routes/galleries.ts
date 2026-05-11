@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import { db } from "../database";
 import * as schema from "../database/schema";
-import { eq, and, desc, asc } from "drizzle-orm";
+import { eq, and, desc, asc, count } from "drizzle-orm";
 import { requireAuth } from "../middleware/auth";
 import { nanoid } from "../lib/id";
 import { getPresignedUploadUrl, getPresignedGetUrl } from "../lib/s3";
@@ -250,7 +250,26 @@ export const galleries = new Hono()
     const all = await db.select().from(schema.galleries)
       .where(eq(schema.galleries.tenantId, tenantId))
       .orderBy(desc(schema.galleries.createdAt));
-    return c.json({ galleries: all }, 200);
+
+    // Attach photoCount + coverUrl for each gallery
+    const withMeta = await Promise.all(all.map(async (g) => {
+      const firstPhoto = await db.select().from(schema.photos)
+        .where(eq(schema.photos.galleryId, g.id))
+        .orderBy(asc(schema.photos.order))
+        .limit(1)
+        .get();
+      const countResult = await db.select({ value: count() }).from(schema.photos)
+        .where(eq(schema.photos.galleryId, g.id))
+        .get();
+      const photoCount = countResult?.value ?? 0;
+      let coverUrl: string | null = null;
+      if (firstPhoto) {
+        try { coverUrl = await getPresignedGetUrl(firstPhoto.r2Key, 3600); } catch { /* ignore */ }
+      }
+      return { ...g, photoCount, coverUrl };
+    }));
+
+    return c.json({ galleries: withMeta }, 200);
   })
 
   // ── Admin: create ─────────────────────────────────────────────────────────

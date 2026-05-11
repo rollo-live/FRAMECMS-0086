@@ -6,10 +6,11 @@ import { Plus, Image as ImageIcon, Link2, Check, ExternalLink } from "lucide-rea
 
 type Gallery = {
   id: string;
-  name: string;
+  title: string;
   projectId: string;
   project?: { name: string };
   photoCount?: number;
+  coverUrl?: string | null;
   watermarkEnabled: boolean;
   shareToken: string | null;
   createdAt: string;
@@ -105,14 +106,20 @@ export default function GalleryPage() {
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
             {displayed.map((gallery) => (
               <div key={gallery.id} className="bg-[#111] border border-[rgba(255,255,255,0.07)] rounded-xl overflow-hidden hover:border-[rgba(255,255,255,0.12)] transition-colors">
-                {/* Preview */}
-                <div className="h-36 bg-gradient-to-br from-[rgba(245,166,35,0.1)] to-[rgba(245,166,35,0.05)] flex items-center justify-center">
-                  <ImageIcon size={32} className="text-[rgba(245,166,35,0.3)]" />
+                {/* Preview / Cover */}
+                <div className="h-36 bg-[#0a0a0a] overflow-hidden relative">
+                  {gallery.coverUrl ? (
+                    <img src={gallery.coverUrl} alt={gallery.title} className="w-full h-full object-cover" />
+                  ) : (
+                    <div className="w-full h-full bg-gradient-to-br from-[rgba(245,166,35,0.1)] to-[rgba(245,166,35,0.05)] flex items-center justify-center">
+                      <ImageIcon size={32} className="text-[rgba(245,166,35,0.3)]" />
+                    </div>
+                  )}
                 </div>
                 <div className="p-4">
                   <div className="flex items-start justify-between gap-2 mb-3">
                     <div className="min-w-0">
-                      <h3 className="font-semibold text-[#f5f5f5] text-sm truncate">{gallery.name}</h3>
+                      <h3 className="font-semibold text-[#f5f5f5] text-sm truncate">{gallery.title}</h3>
                       {gallery.project && (
                         <p className="text-xs text-[#a0a0a0] mt-0.5 truncate">{gallery.project.name}</p>
                       )}
