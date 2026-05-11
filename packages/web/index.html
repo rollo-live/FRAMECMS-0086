@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="en">
+	<head>
+		<meta charset="UTF-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+		<link rel="icon" href="/favicon.ico" />
+		<meta property="og:image" content="/og-image.png" />
+		<title>Web</title>
+	</head>
+	<body>
+		<div id="root"></div>
+		<script>
+			window.__startErrors = [];
+			window.addEventListener('error', function(e){ window.__startErrors.push({msg:e.message,file:e.filename,line:e.lineno,stack:e.error&&e.error.stack}); }, true);
+			window.addEventListener('unhandledrejection', function(e){ window.__startErrors.push({msg:String(e.reason),stack:e.reason&&e.reason.stack}); }, true);
+		</script>
+		<script type="module" src="/src/web/main.tsx"></script>
+	</body>
+</html>
