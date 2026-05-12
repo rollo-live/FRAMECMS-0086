@@ -1,8 +1,10 @@
 {
     "id": "website",
-    "name": "Runable",
-    "description": "A template for building a React application with Vite, Hono, and Cloudflare Workers",
+    "name": "FRAME",
+    "description": "FRAME — Photography Studio CMS",
     "url": "https://example.com",
     "hostname": "xyz.runable.site",
-    "port": 8080
+    "port": 8080,
+    "buildCommand": "cd packages/web && bun run build",
+    "startCommand": "cd packages/web && bun run ./src/api/server.ts"
 }
