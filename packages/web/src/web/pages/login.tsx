@@ -1,12 +1,11 @@
 import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { authClient } from "../lib/auth";
-import { Aperture, Mail, Lock, User, Eye, EyeOff, ArrowRight, Clapperboard, Image, Video, FolderKanban } from "lucide-react";
+import { Aperture, Mail, Lock, Eye, EyeOff, ArrowRight, Clapperboard, Image, Video, FolderKanban } from "lucide-react";
 
 export default function LoginPage() {
   const navigate = useNavigate();
-  const [tab, setTab] = useState<"login" | "register">("login");
-  const [form, setForm] = useState({ name: "", email: "", password: "" });
+  const [form, setForm] = useState({ email: "", password: "" });
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
@@ -16,13 +15,8 @@ export default function LoginPage() {
     setError("");
     setLoading(true);
     try {
-      if (tab === "register") {
-        const res = await authClient.signUp.email({ name: form.name, email: form.email, password: form.password });
-        if (res.error) throw new Error(res.error.message);
-      } else {
-        const res = await authClient.signIn.email({ email: form.email, password: form.password });
-        if (res.error) throw new Error(res.error.message);
-      }
+      const res = await authClient.signIn.email({ email: form.email, password: form.password });
+      if (res.error) throw new Error(res.error.message);
       await authClient.getSession();
       navigate("/dashboard", { replace: true });
     } catch (err: any) {
@@ -100,34 +94,11 @@ export default function LoginPage() {
         <div className="w-full max-w-[380px]">
           {/* Headline */}
           <div className="mb-8">
-            <h2 className="text-2xl font-bold text-[#111]">
-              {tab === "login" ? "Bentornato!" : "Crea account"}
-            </h2>
-            <p className="text-sm text-[#888] mt-1">
-              {tab === "login"
-                ? "Inserisci le tue credenziali per accedere"
-                : "Inizia a usare Frame gratuitamente"}
-            </p>
+            <h2 className="text-2xl font-bold text-[#111]">Bentornato!</h2>
+            <p className="text-sm text-[#888] mt-1">Inserisci le tue credenziali per accedere</p>
           </div>
 
           <form onSubmit={handleSubmit} className="space-y-4">
-            {tab === "register" && (
-              <div className="space-y-1.5">
-                <label className="text-xs font-semibold text-[#555] uppercase tracking-wide">Nome completo</label>
-                <div className="relative">
-                  <User size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-[#bbb]" />
-                  <input
-                    type="text"
-                    placeholder="Mario Rossi"
-                    value={form.name}
-                    onChange={(e) => setForm(f => ({ ...f, name: e.target.value }))}
-                    required
-                    className="w-full pl-10 pr-4 py-3 text-sm border border-[#e5e5e5] rounded-xl text-[#111] placeholder:text-[#bbb] outline-none focus:border-[#F5A623] focus:ring-2 focus:ring-[rgba(245,166,35,0.12)] transition-all bg-white"
-                  />
-                </div>
-              </div>
-            )}
-
             <div className="space-y-1.5">
               <label className="text-xs font-semibold text-[#555] uppercase tracking-wide">Email</label>
               <div className="relative">
@@ -144,14 +115,7 @@ export default function LoginPage() {
             </div>
 
             <div className="space-y-1.5">
-              <div className="flex items-center justify-between">
-                <label className="text-xs font-semibold text-[#555] uppercase tracking-wide">Password</label>
-                {tab === "login" && (
-                  <button type="button" className="text-xs text-[#F5A623] hover:underline font-medium">
-                    Password dimenticata?
-                  </button>
-                )}
-              </div>
+              <label className="text-xs font-semibold text-[#555] uppercase tracking-wide">Password</label>
               <div className="relative">
                 <Lock size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-[#bbb]" />
                 <input
@@ -190,30 +154,12 @@ export default function LoginPage() {
                 </svg>
               ) : (
                 <>
-                  {tab === "login" ? "Accedi" : "Crea account"}
+                  Accedi
                   <ArrowRight size={15} />
                 </>
               )}
             </button>
           </form>
-
-          {/* Switch tab */}
-          <p className="text-sm text-[#888] text-center mt-6">
-            {tab === "login" ? "Non hai un account?" : "Hai già un account?"}{" "}
-            <button
-              type="button"
-              onClick={() => { setTab(tab === "login" ? "register" : "login"); setError(""); }}
-              className="text-[#F5A623] font-semibold hover:underline"
-            >
-              {tab === "login" ? "Registrati" : "Accedi"}
-            </button>
-          </p>
-
-          {tab === "register" && (
-            <p className="text-xs text-[#bbb] text-center mt-3">
-              Registrandoti accetti i Termini di Servizio
-            </p>
-          )}
 
           {/* Bottom links */}
           <div className="flex items-center justify-center gap-4 mt-8">
