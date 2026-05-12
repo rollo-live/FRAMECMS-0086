@@ -2,8 +2,7 @@ import { useState, useEffect, useCallback } from "react";
 import { DashboardLayout } from "../components/layout/dashboard-layout";
 import {
   TrendingUp, TrendingDown, Wallet, PiggyBank, Scale, Plus, Pencil, Trash2,
-  ChevronLeft, ChevronRight, X, Check, FileText, Receipt, Settings, BarChart2,
-  ArrowDownLeft, ArrowUpRight, AlertCircle, Download
+  ChevronLeft, ChevronRight, X, Check, Settings, AlertCircle,
 } from "lucide-react";
 import { api } from "../lib/api";
 
@@ -60,46 +59,146 @@ interface TrendItem {
 
 const CATEGORIE_ENTRATE = ["Servizio Fotografico", "Servizio Video", "Editing", "Stampe", "Altro"];
 const CATEGORIE_USCITE = ["Affitto", "Luce", "Internet", "Materiale di consumo", "Attrezzatura", "Software", "Trasporto", "Caffè", "Marketing", "Formazione", "Altro"];
-
-const fmt = (n: number) =>
-  new Intl.NumberFormat("it-IT", { style: "currency", currency: "EUR" }).format(n);
-
-const fmtShort = (n: number) =>
-  `€${n >= 1000 ? (n / 1000).toFixed(1) + "k" : n.toFixed(0)}`;
-
+const fmt = (n: number) => new Intl.NumberFormat("it-IT", { style: "currency", currency: "EUR" }).format(n);
 const monthNames = ["Gennaio", "Febbraio", "Marzo", "Aprile", "Maggio", "Giugno",
   "Luglio", "Agosto", "Settembre", "Ottobre", "Novembre", "Dicembre"];
 
-// ─── Mini Chart ──────────────────────────────────────────────────────────────
+// ─── SVG Line + Bar Chart ─────────────────────────────────────────────────────
 
-function BarChart({ data }: { data: TrendItem[] }) {
+function TrendChart({ data }: { data: TrendItem[] }) {
   if (!data.length) return null;
-  const maxVal = Math.max(...data.map(d => Math.max(d.entrate, d.uscite)), 1);
+  const W = 560, H = 160, PAD = { top: 16, right: 16, bottom: 28, left: 48 };
+  const innerW = W - PAD.left - PAD.right;
+  const innerH = H - PAD.top - PAD.bottom;
+
+  const allVals = data.flatMap(d => [d.entrate, d.uscite, d.accantonamento]);
+  const maxVal = Math.max(...allVals, 1);
+
+  const xStep = innerW / (data.length - 1 || 1);
+
+  const toX = (i: number) => PAD.left + i * xStep;
+  const toY = (v: number) => PAD.top + innerH - (v / maxVal) * innerH;
+
+  const linePath = (key: "entrate" | "uscite" | "accantonamento") =>
+    data.map((d, i) => `${i === 0 ? "M" : "L"} ${toX(i).toFixed(1)} ${toY(d[key]).toFixed(1)}`).join(" ");
+
+  const areaPath = (key: "entrate" | "uscite") => {
+    const pts = data.map((d, i) => `${toX(i).toFixed(1)},${toY(d[key]).toFixed(1)}`).join(" L ");
+    const base = PAD.top + innerH;
+    return `M ${toX(0).toFixed(1)},${base} L ${pts} L ${toX(data.length - 1).toFixed(1)},${base} Z`;
+  };
+
+  // Y axis ticks
+  const ticks = [0, 0.25, 0.5, 0.75, 1].map(t => ({ val: maxVal * t, y: PAD.top + innerH - t * innerH }));
+
+  const fmtK = (n: number) => n >= 1000 ? `€${(n / 1000).toFixed(1)}k` : `€${n.toFixed(0)}`;
+
   return (
-    <div className="flex items-end gap-2 h-32">
-      {data.map((d, i) => (
-        <div key={i} className="flex-1 flex flex-col items-center gap-1">
-          <div className="w-full flex items-end gap-0.5" style={{ height: 100 }}>
-            <div
-              className="flex-1 rounded-t-sm bg-[#4CAF50]/70"
-              style={{ height: `${(d.entrate / maxVal) * 100}%`, minHeight: d.entrate > 0 ? 2 : 0 }}
-            />
-            <div
-              className="flex-1 rounded-t-sm bg-[#ef4444]/70"
-              style={{ height: `${(d.uscite / maxVal) * 100}%`, minHeight: d.uscite > 0 ? 2 : 0 }}
-            />
-          </div>
-          <span className="text-[10px] text-[#666] capitalize">{d.label}</span>
-        </div>
-      ))}
+    <div className="overflow-x-auto">
+      <svg viewBox={`0 0 ${W} ${H}`} className="w-full" style={{ minWidth: 320 }}>
+        <defs>
+          <linearGradient id="gradEnt" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor="#4CAF50" stopOpacity="0.25" />
+            <stop offset="100%" stopColor="#4CAF50" stopOpacity="0.02" />
+          </linearGradient>
+          <linearGradient id="gradUsc" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor="#ef4444" stopOpacity="0.2" />
+            <stop offset="100%" stopColor="#ef4444" stopOpacity="0.02" />
+          </linearGradient>
+        </defs>
+
+        {/* Grid lines */}
+        {ticks.map(({ val, y }) => (
+          <g key={val}>
+            <line x1={PAD.left} y1={y} x2={W - PAD.right} y2={y} stroke="rgba(255,255,255,0.05)" strokeWidth="1" />
+            <text x={PAD.left - 6} y={y + 4} textAnchor="end" fill="#444" fontSize="9">{fmtK(val)}</text>
+          </g>
+        ))}
+
+        {/* Area fills */}
+        <path d={areaPath("entrate")} fill="url(#gradEnt)" />
+        <path d={areaPath("uscite")} fill="url(#gradUsc)" />
+
+        {/* Lines */}
+        <path d={linePath("entrate")} fill="none" stroke="#4CAF50" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+        <path d={linePath("uscite")} fill="none" stroke="#ef4444" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+        <path d={linePath("accantonamento")} fill="none" stroke="#F5A623" strokeWidth="1.5" strokeDasharray="4 3" strokeLinecap="round" strokeLinejoin="round" />
+
+        {/* Dots + labels */}
+        {data.map((d, i) => (
+          <g key={i}>
+            <circle cx={toX(i)} cy={toY(d.entrate)} r="3.5" fill="#4CAF50" stroke="#111" strokeWidth="1.5" />
+            <circle cx={toX(i)} cy={toY(d.uscite)} r="3.5" fill="#ef4444" stroke="#111" strokeWidth="1.5" />
+            <text
+              x={toX(i)} y={H - 6}
+              textAnchor="middle" fill="#555" fontSize="10" className="capitalize"
+            >{d.label}</text>
+          </g>
+        ))}
+      </svg>
     </div>
   );
 }
 
-// ─── Stat Card ────────────────────────────────────────────────────────────────
+// ─── Donut chart for composition ─────────────────────────────────────────────
+
+function DonutChart({ socioA, socioB, studio, labelA, labelB }: {
+  socioA: number; socioB: number; studio: number; labelA: string; labelB: string;
+}) {
+  const total = socioA + socioB + studio;
+  if (total <= 0) return <div className="text-center text-xs text-[#444] py-4">Nessun dato</div>;
+  const cx = 60, cy = 60, r = 48, stroke = 12;
+  const circ = 2 * Math.PI * r;
+  const segments = [
+    { val: socioA, color: "#F5A623", label: labelA },
+    { val: socioB, color: "#8b5cf6", label: labelB },
+    { val: studio, color: "#3b82f6", label: "Studio" },
+  ].filter(s => s.val > 0);
+
+  let offset = 0;
+  const arcs = segments.map(s => {
+    const len = (s.val / total) * circ;
+    const arc = { ...s, offset, len };
+    offset += len;
+    return arc;
+  });
+
+  return (
+    <div className="flex items-center gap-6">
+      <svg viewBox="0 0 120 120" className="w-24 h-24 flex-shrink-0" style={{ transform: "rotate(-90deg)" }}>
+        <circle cx={cx} cy={cy} r={r} fill="none" stroke="#1a1a1a" strokeWidth={stroke} />
+        {arcs.map((a, i) => (
+          <circle key={i} cx={cx} cy={cy} r={r} fill="none"
+            stroke={a.color} strokeWidth={stroke}
+            strokeDasharray={`${a.len} ${circ - a.len}`}
+            strokeDashoffset={-a.offset}
+            strokeLinecap="butt"
+          />
+        ))}
+      </svg>
+      <div className="space-y-2 flex-1">
+        {arcs.map((a, i) => (
+          <div key={i} className="flex items-center justify-between gap-3">
+            <div className="flex items-center gap-2">
+              <span className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ background: a.color }} />
+              <span className="text-xs text-[#888]">{a.label}</span>
+            </div>
+            <span className="text-xs font-semibold text-[#f5f5f5]">{fmt(a.val)}</span>
+          </div>
+        ))}
+        <div className="pt-1 border-t border-[rgba(255,255,255,0.05)] flex justify-between">
+          <span className="text-xs text-[#555]">Totale</span>
+          <span className="text-xs font-bold text-[#f5f5f5]">{fmt(total)}</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── UI helpers ──────────────────────────────────────────────────────────────
 
 function StatCard({ label, value, sub, color, icon: Icon }: {
-  label: string; value: string; sub?: string; color: string; icon: any
+  label: string; value: string; sub?: string; color: string; icon: any;
 }) {
   return (
     <div className="bg-[#161616] border border-[rgba(255,255,255,0.06)] rounded-2xl p-5">
@@ -115,12 +214,10 @@ function StatCard({ label, value, sub, color, icon: Icon }: {
   );
 }
 
-// ─── Modal wrapper ────────────────────────────────────────────────────────────
-
 function Modal({ title, onClose, children }: { title: string; onClose: () => void; children: React.ReactNode }) {
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70">
-      <div className="bg-[#161616] border border-[rgba(255,255,255,0.08)] rounded-2xl w-full max-w-md shadow-2xl">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 overflow-y-auto">
+      <div className="bg-[#161616] border border-[rgba(255,255,255,0.08)] rounded-2xl w-full max-w-md shadow-2xl my-auto">
         <div className="flex items-center justify-between px-6 py-4 border-b border-[rgba(255,255,255,0.06)]">
           <h3 className="font-semibold text-[#f5f5f5]">{title}</h3>
           <button onClick={onClose} className="p-1.5 rounded-lg text-[#555] hover:text-[#f5f5f5] hover:bg-[#222] transition-colors">
@@ -142,17 +239,33 @@ function FormField({ label, children }: { label: string; children: React.ReactNo
   );
 }
 
-const inputCls = "bg-[#111] border border-[rgba(255,255,255,0.08)] rounded-xl px-3 py-2.5 text-sm text-[#f5f5f5] outline-none focus:border-[#F5A623] transition-colors";
+const inputCls = "bg-[#111] border border-[rgba(255,255,255,0.08)] rounded-xl px-3 py-2.5 text-sm text-[#f5f5f5] outline-none focus:border-[#F5A623] transition-colors w-full";
 const selectCls = inputCls + " cursor-pointer";
-const btnPrimary = "flex items-center gap-2 bg-[#F5A623] hover:bg-[#e6991f] text-black font-semibold text-sm px-4 py-2.5 rounded-xl transition-colors";
+const btnPrimary = "flex items-center gap-2 bg-[#F5A623] hover:bg-[#e6991f] text-black font-semibold text-sm px-4 py-2.5 rounded-xl transition-colors disabled:opacity-50";
 const btnSecondary = "flex items-center gap-2 text-[#888] hover:text-[#f5f5f5] hover:bg-[#222] text-sm px-4 py-2.5 rounded-xl transition-colors border border-[rgba(255,255,255,0.08)]";
+
+function Toggle({ value, onChange, label, sub }: {
+  value: boolean; onChange: (v: boolean) => void; label: string; sub?: string;
+}) {
+  return (
+    <div className="flex items-center gap-3 p-3 bg-[#111] rounded-xl border border-[rgba(255,255,255,0.06)] cursor-pointer" onClick={() => onChange(!value)}>
+      <div className={`w-10 h-6 rounded-full transition-all flex-shrink-0 relative ${value ? "bg-[#F5A623]" : "bg-[#333]"}`}>
+        <span className={`absolute top-1 w-4 h-4 rounded-full bg-white shadow transition-all ${value ? "left-5" : "left-1"}`} />
+      </div>
+      <div>
+        <div className="text-sm font-medium text-[#f5f5f5]">{label}</div>
+        {sub && <div className="text-xs text-[#555]">{sub}</div>}
+      </div>
+    </div>
+  );
+}
 
 // ─── Entrata Form ─────────────────────────────────────────────────────────────
 
 function EntrataForm({ initial, settings, onSave, onClose }: {
   initial?: Partial<Entrata>;
   settings: ContabilitaSettings;
-  onSave: (data: Omit<Entrata, "id">) => void;
+  onSave: (data: Omit<Entrata, "id">) => Promise<string | null>;
   onClose: () => void;
 }) {
   const today = new Date().toISOString().slice(0, 10);
@@ -165,16 +278,38 @@ function EntrataForm({ initial, settings, onSave, onClose }: {
     note: initial?.note ?? "",
     data: initial?.data ? new Date(initial.data).toISOString().slice(0, 10) : today,
   });
-
-  const acc = form.fattura
-    ? parseFloat(form.importo || "0") * (settings.forfettarioBase / 100) * (settings.accAntonamentoRate / 100)
-    : 0;
-  const netto = parseFloat(form.importo || "0") - acc;
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const set = (k: string, v: any) => setForm(f => ({ ...f, [k]: v }));
+  const importoNum = parseFloat(form.importo || "0") || 0;
+  const acc = form.fattura ? importoNum * (settings.forfettarioBase / 100) * (settings.accAntonamentoRate / 100) : 0;
+  const netto = importoNum - acc;
+
+  const handleSave = async () => {
+    if (!form.descrizione.trim()) { setError("Inserisci una descrizione"); return; }
+    if (!form.importo || importoNum <= 0) { setError("Inserisci un importo valido"); return; }
+    setSaving(true); setError(null);
+    const err = await onSave({
+      descrizione: form.descrizione.trim(),
+      importo: importoNum,
+      beneficiario: form.beneficiario,
+      fattura: form.fattura,
+      categoria: form.categoria,
+      note: form.note.trim() || null,
+      data: new Date(form.data).toISOString(),
+    });
+    setSaving(false);
+    if (err) setError(err);
+  };
 
   return (
     <div className="flex flex-col gap-4">
+      {error && (
+        <div className="flex items-center gap-2 bg-[#2a0a0a] border border-[rgba(239,68,68,0.3)] rounded-xl p-3 text-sm text-[#ef4444]">
+          <AlertCircle size={14} className="flex-shrink-0" /> {error}
+        </div>
+      )}
       <FormField label="Descrizione *">
         <input className={inputCls} value={form.descrizione} onChange={e => set("descrizione", e.target.value)} placeholder="Es. Servizio matrimonio Rossi" />
       </FormField>
@@ -198,48 +333,21 @@ function EntrataForm({ initial, settings, onSave, onClose }: {
           {CATEGORIE_ENTRATE.map(c => <option key={c} value={c}>{c}</option>)}
         </select>
       </FormField>
-      <div className="flex items-center gap-3 p-3 bg-[#111] rounded-xl border border-[rgba(255,255,255,0.06)]">
-        <button
-          type="button"
-          onClick={() => set("fattura", !form.fattura)}
-          className={`w-10 h-6 rounded-full transition-all flex-shrink-0 relative ${form.fattura ? "bg-[#F5A623]" : "bg-[#333]"}`}
-        >
-          <span className={`absolute top-1 w-4 h-4 rounded-full bg-white shadow transition-all ${form.fattura ? "left-5" : "left-1"}`} />
-        </button>
-        <div>
-          <div className="text-sm font-medium text-[#f5f5f5]">Fattura emessa</div>
-          <div className="text-xs text-[#555]">Calcola accantonamento forfettario</div>
-        </div>
-      </div>
-      {form.fattura && parseFloat(form.importo) > 0 && (
+      <Toggle value={form.fattura} onChange={v => set("fattura", v)} label="Fattura emessa" sub="Calcola accantonamento forfettario" />
+      {form.fattura && importoNum > 0 && (
         <div className="bg-[#1a1200] border border-[rgba(245,166,35,0.2)] rounded-xl p-4 space-y-2">
-          <div className="flex justify-between text-sm">
-            <span className="text-[#888]">Lordo</span>
-            <span className="text-[#f5f5f5] font-medium">{fmt(parseFloat(form.importo))}</span>
-          </div>
-          <div className="flex justify-between text-sm">
-            <span className="text-[#888]">Accantonamento ({settings.forfettarioBase}% × {settings.accAntonamentoRate}%)</span>
-            <span className="text-[#F5A623]">−{fmt(acc)}</span>
-          </div>
-          <div className="flex justify-between text-sm border-t border-[rgba(255,255,255,0.06)] pt-2">
-            <span className="text-[#888] font-semibold">Netto Reale</span>
-            <span className="text-[#4CAF50] font-bold">{fmt(netto)}</span>
-          </div>
+          <div className="flex justify-between text-sm"><span className="text-[#888]">Lordo</span><span className="text-[#f5f5f5] font-medium">{fmt(importoNum)}</span></div>
+          <div className="flex justify-between text-sm"><span className="text-[#888]">Accantonamento ({settings.forfettarioBase}% × {settings.accAntonamentoRate}%)</span><span className="text-[#F5A623]">−{fmt(acc)}</span></div>
+          <div className="flex justify-between text-sm border-t border-[rgba(255,255,255,0.06)] pt-2"><span className="text-[#888] font-semibold">Netto Reale</span><span className="text-[#4CAF50] font-bold">{fmt(netto)}</span></div>
         </div>
       )}
       <FormField label="Note">
-        <textarea className={inputCls + " resize-none"} rows={2} value={form.note} onChange={e => set("note", e.target.value)} placeholder="Note opzionali..." />
+        <textarea className={inputCls + " resize-none"} rows={2} value={form.note} onChange={e => set("note", e.target.value)} placeholder="Opzionale..." />
       </FormField>
       <div className="flex gap-3 pt-2">
         <button className={btnSecondary} onClick={onClose}>Annulla</button>
-        <button
-          className={btnPrimary + " flex-1 justify-center"}
-          onClick={() => {
-            if (!form.descrizione || !form.importo) return;
-            onSave({ ...form, importo: parseFloat(form.importo), data: new Date(form.data).toISOString() });
-          }}
-        >
-          <Check size={15} /> Salva
+        <button className={btnPrimary + " flex-1 justify-center"} onClick={handleSave} disabled={saving}>
+          <Check size={15} /> {saving ? "Salvataggio..." : "Salva"}
         </button>
       </div>
     </div>
@@ -251,7 +359,7 @@ function EntrataForm({ initial, settings, onSave, onClose }: {
 function UscitaForm({ initial, settings, onSave, onClose }: {
   initial?: Partial<Uscita>;
   settings: ContabilitaSettings;
-  onSave: (data: Omit<Uscita, "id">) => void;
+  onSave: (data: Omit<Uscita, "id">) => Promise<string | null>;
   onClose: () => void;
 }) {
   const today = new Date().toISOString().slice(0, 10);
@@ -264,12 +372,36 @@ function UscitaForm({ initial, settings, onSave, onClose }: {
     note: initial?.note ?? "",
     data: initial?.data ? new Date(initial.data).toISOString().slice(0, 10) : today,
   });
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const set = (k: string, v: any) => setForm(f => ({ ...f, [k]: v }));
-  const importoNum = parseFloat(form.importo || "0");
+  const importoNum = parseFloat(form.importo || "0") || 0;
+
+  const handleSave = async () => {
+    if (!form.descrizione.trim()) { setError("Inserisci una descrizione"); return; }
+    if (!form.importo || importoNum <= 0) { setError("Inserisci un importo valido"); return; }
+    setSaving(true); setError(null);
+    const err = await onSave({
+      descrizione: form.descrizione.trim(),
+      importo: importoNum,
+      categoria: form.categoria,
+      divisiPerMeta: form.divisiPerMeta,
+      pagatoDa: form.pagatoDa,
+      note: form.note.trim() || null,
+      data: new Date(form.data).toISOString(),
+    });
+    setSaving(false);
+    if (err) setError(err);
+  };
 
   return (
     <div className="flex flex-col gap-4">
+      {error && (
+        <div className="flex items-center gap-2 bg-[#2a0a0a] border border-[rgba(239,68,68,0.3)] rounded-xl p-3 text-sm text-[#ef4444]">
+          <AlertCircle size={14} className="flex-shrink-0" /> {error}
+        </div>
+      )}
       <FormField label="Descrizione *">
         <input className={inputCls} value={form.descrizione} onChange={e => set("descrizione", e.target.value)} placeholder="Es. Affitto studio Maggio" />
       </FormField>
@@ -283,7 +415,7 @@ function UscitaForm({ initial, settings, onSave, onClose }: {
       </div>
       <FormField label="Categoria">
         <select className={selectCls} value={form.categoria} onChange={e => set("categoria", e.target.value)}>
-          {CATEGORIE_USCITE.map(c => <option key={c} value={c}>{c}</option>)}
+          {CATEGORIE_USCITE.map(cat => <option key={cat} value={cat}>{cat}</option>)}
         </select>
       </FormField>
       <FormField label="Pagato da">
@@ -293,19 +425,7 @@ function UscitaForm({ initial, settings, onSave, onClose }: {
           <option value="studio">Conto Studio</option>
         </select>
       </FormField>
-      <div className="flex items-center gap-3 p-3 bg-[#111] rounded-xl border border-[rgba(255,255,255,0.06)]">
-        <button
-          type="button"
-          onClick={() => set("divisiPerMeta", !form.divisiPerMeta)}
-          className={`w-10 h-6 rounded-full transition-all flex-shrink-0 relative ${form.divisiPerMeta ? "bg-[#F5A623]" : "bg-[#333]"}`}
-        >
-          <span className={`absolute top-1 w-4 h-4 rounded-full bg-white shadow transition-all ${form.divisiPerMeta ? "left-5" : "left-1"}`} />
-        </button>
-        <div>
-          <div className="text-sm font-medium text-[#f5f5f5]">Dividi a metà</div>
-          <div className="text-xs text-[#555]">Ripartisce al 50% per il bilancio individuale</div>
-        </div>
-      </div>
+      <Toggle value={form.divisiPerMeta} onChange={v => set("divisiPerMeta", v)} label="Dividi a metà" sub="Ripartisce al 50% per il bilancio individuale" />
       {form.divisiPerMeta && importoNum > 0 && (
         <div className="bg-[#111] border border-[rgba(255,255,255,0.06)] rounded-xl p-3 flex justify-between text-sm">
           <span className="text-[#888]">Quota per socio</span>
@@ -313,18 +433,12 @@ function UscitaForm({ initial, settings, onSave, onClose }: {
         </div>
       )}
       <FormField label="Note">
-        <textarea className={inputCls + " resize-none"} rows={2} value={form.note} onChange={e => set("note", e.target.value)} placeholder="Note opzionali..." />
+        <textarea className={inputCls + " resize-none"} rows={2} value={form.note} onChange={e => set("note", e.target.value)} placeholder="Opzionale..." />
       </FormField>
       <div className="flex gap-3 pt-2">
         <button className={btnSecondary} onClick={onClose}>Annulla</button>
-        <button
-          className={btnPrimary + " flex-1 justify-center"}
-          onClick={() => {
-            if (!form.descrizione || !form.importo) return;
-            onSave({ ...form, importo: parseFloat(form.importo), data: new Date(form.data).toISOString() });
-          }}
-        >
-          <Check size={15} /> Salva
+        <button className={btnPrimary + " flex-1 justify-center"} onClick={handleSave} disabled={saving}>
+          <Check size={15} /> {saving ? "Salvataggio..." : "Salva"}
         </button>
       </div>
     </div>
@@ -335,45 +449,49 @@ function UscitaForm({ initial, settings, onSave, onClose }: {
 
 function SettingsModal({ settings, onSave, onClose }: {
   settings: ContabilitaSettings;
-  onSave: (s: ContabilitaSettings) => void;
+  onSave: (s: ContabilitaSettings) => Promise<string | null>;
   onClose: () => void;
 }) {
   const [form, setForm] = useState({ ...settings });
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const set = (k: string, v: any) => setForm(f => ({ ...f, [k]: v }));
   const effRate = (form.forfettarioBase / 100) * (form.accAntonamentoRate / 100) * 100;
+
+  const handleSave = async () => {
+    setSaving(true); setError(null);
+    const err = await onSave(form);
+    setSaving(false);
+    if (err) setError(err);
+  };
 
   return (
     <Modal title="Impostazioni Contabilità" onClose={onClose}>
       <div className="flex flex-col gap-4">
+        {error && (
+          <div className="flex items-center gap-2 bg-[#2a0a0a] border border-[rgba(239,68,68,0.3)] rounded-xl p-3 text-sm text-[#ef4444]">
+            <AlertCircle size={14} /> {error}
+          </div>
+        )}
         <div className="grid grid-cols-2 gap-3">
-          <FormField label="Nome Socio A">
-            <input className={inputCls} value={form.socioAName} onChange={e => set("socioAName", e.target.value)} />
-          </FormField>
-          <FormField label="Nome Socio B">
-            <input className={inputCls} value={form.socioBName} onChange={e => set("socioBName", e.target.value)} />
-          </FormField>
+          <FormField label="Nome Socio A"><input className={inputCls} value={form.socioAName} onChange={e => set("socioAName", e.target.value)} /></FormField>
+          <FormField label="Nome Socio B"><input className={inputCls} value={form.socioBName} onChange={e => set("socioBName", e.target.value)} /></FormField>
         </div>
         <div className="grid grid-cols-2 gap-3">
-          <FormField label="Aliquota accantonamento (%)">
-            <input className={inputCls} type="number" min="0" max="100" value={form.accAntonamentoRate} onChange={e => set("accAntonamentoRate", parseFloat(e.target.value))} />
-          </FormField>
-          <FormField label="Base forfettaria (%)">
-            <input className={inputCls} type="number" min="0" max="100" value={form.forfettarioBase} onChange={e => set("forfettarioBase", parseFloat(e.target.value))} />
-          </FormField>
+          <FormField label="Aliquota accantonamento (%)"><input className={inputCls} type="number" min="0" max="100" step="0.5" value={form.accAntonamentoRate} onChange={e => set("accAntonamentoRate", parseFloat(e.target.value))} /></FormField>
+          <FormField label="Base forfettaria (%)"><input className={inputCls} type="number" min="0" max="100" step="1" value={form.forfettarioBase} onChange={e => set("forfettarioBase", parseFloat(e.target.value))} /></FormField>
         </div>
         <div className="bg-[#1a1200] border border-[rgba(245,166,35,0.2)] rounded-xl p-4">
-          <div className="text-xs text-[#888] mb-1">Formula accantonamento effettivo</div>
+          <div className="text-xs text-[#888] mb-1">Formula effettiva su fatturato</div>
           <div className="text-sm text-[#f5f5f5]">
-            Fatturato × <span className="text-[#F5A623]">{form.forfettarioBase}%</span> (base) × <span className="text-[#F5A623]">{form.accAntonamentoRate}%</span> (aliquota) = <span className="text-[#F5A623] font-bold">{effRate.toFixed(2)}%</span> effettivo
+            {form.forfettarioBase}% × {form.accAntonamentoRate}% = <span className="text-[#F5A623] font-bold">{effRate.toFixed(2)}%</span>
           </div>
-          <div className="text-xs text-[#555] mt-1">
-            Su €1.000 → accantonamento: {fmt(1000 * form.forfettarioBase / 100 * form.accAntonamentoRate / 100)}
-          </div>
+          <div className="text-xs text-[#555] mt-1">Su €1.000 → accantonamento: {fmt(1000 * effRate / 100)}</div>
         </div>
         <div className="flex gap-3 pt-2">
           <button className={btnSecondary} onClick={onClose}>Annulla</button>
-          <button className={btnPrimary + " flex-1 justify-center"} onClick={() => onSave(form)}>
-            <Check size={15} /> Salva impostazioni
+          <button className={btnPrimary + " flex-1 justify-center"} onClick={handleSave} disabled={saving}>
+            <Check size={15} /> {saving ? "Salvataggio..." : "Salva"}
           </button>
         </div>
       </div>
@@ -387,13 +505,8 @@ function CompensazioneBanner({ comp, settings }: { comp: Riepilogo["compensazion
   if (comp.debitore === "in_pari") {
     return (
       <div className="flex items-center gap-3 bg-[#0d1f0d] border border-[rgba(76,175,80,0.3)] rounded-2xl p-4">
-        <div className="w-9 h-9 rounded-xl bg-[#4CAF50]/20 flex items-center justify-center flex-shrink-0">
-          <Check size={18} className="text-[#4CAF50]" />
-        </div>
-        <div>
-          <div className="text-sm font-semibold text-[#4CAF50]">Soci in pari</div>
-          <div className="text-xs text-[#555]">Nessuna compensazione necessaria per le spese condivise.</div>
-        </div>
+        <div className="w-9 h-9 rounded-xl bg-[#4CAF50]/20 flex items-center justify-center flex-shrink-0"><Check size={18} className="text-[#4CAF50]" /></div>
+        <div><div className="text-sm font-semibold text-[#4CAF50]">Soci in pari</div><div className="text-xs text-[#555]">Nessuna compensazione necessaria per le spese condivise.</div></div>
       </div>
     );
   }
@@ -401,14 +514,10 @@ function CompensazioneBanner({ comp, settings }: { comp: Riepilogo["compensazion
   const creditoreNome = comp.creditore === "socio_a" ? settings.socioAName : settings.socioBName;
   return (
     <div className="flex items-center gap-3 bg-[#1a0d00] border border-[rgba(245,166,35,0.3)] rounded-2xl p-4">
-      <div className="w-9 h-9 rounded-xl bg-[#F5A623]/20 flex items-center justify-center flex-shrink-0">
-        <Scale size={18} className="text-[#F5A623]" />
-      </div>
+      <div className="w-9 h-9 rounded-xl bg-[#F5A623]/20 flex items-center justify-center flex-shrink-0"><Scale size={18} className="text-[#F5A623]" /></div>
       <div className="flex-1 min-w-0">
         <div className="text-sm font-semibold text-[#F5A623]">Compensazione spese condivise</div>
-        <div className="text-xs text-[#888] mt-0.5">
-          <span className="text-[#f5f5f5]">{debitoreNome}</span> deve a <span className="text-[#f5f5f5]">{creditoreNome}</span>
-        </div>
+        <div className="text-xs text-[#888] mt-0.5"><span className="text-[#f5f5f5]">{debitoreNome}</span> deve a <span className="text-[#f5f5f5]">{creditoreNome}</span></div>
       </div>
       <div className="text-xl font-bold text-[#F5A623] flex-shrink-0">{fmt(comp.importo)}</div>
     </div>
@@ -433,8 +542,6 @@ export default function Contabilita() {
   const [entrate, setEntrate] = useState<Entrata[]>([]);
   const [uscite, setUscite] = useState<Uscita[]>([]);
   const [loading, setLoading] = useState(true);
-
-  // Modals
   const [showSettings, setShowSettings] = useState(false);
   const [addEntrata, setAddEntrata] = useState(false);
   const [addUscita, setAddUscita] = useState(false);
@@ -451,36 +558,41 @@ export default function Contabilita() {
         api.get(`/api/contabilita/entrate?month=${month}&year=${year}`),
         api.get(`/api/contabilita/uscite?month=${month}&year=${year}`),
       ]);
-      if (sRes.ok) setSettings(await sRes.json());
-      if (rRes.ok) setRiepilogo(await rRes.json());
-      if (tRes.ok) setTrend(await tRes.json());
-      if (eRes.ok) setEntrate(await eRes.json());
-      if (uRes.ok) setUscite(await uRes.json());
-    } catch (e) { console.error(e); }
+      if (sRes.ok) { const d = await sRes.json(); if (d && !d.error) setSettings(d); }
+      if (rRes.ok) { const d = await rRes.json(); if (d && !d.error) setRiepilogo(d); }
+      if (tRes.ok) { const d = await tRes.json(); if (Array.isArray(d)) setTrend(d); }
+      if (eRes.ok) { const d = await eRes.json(); if (Array.isArray(d)) setEntrate(d); }
+      if (uRes.ok) { const d = await uRes.json(); if (Array.isArray(d)) setUscite(d); }
+    } catch (e) { console.error("fetchAll", e); }
     setLoading(false);
   }, [month, year]);
 
   useEffect(() => { fetchAll(); }, [fetchAll]);
 
-  const prevMonth = () => {
-    if (month === 1) { setMonth(12); setYear(y => y - 1); }
-    else setMonth(m => m - 1);
-  };
-  const nextMonth = () => {
-    if (month === 12) { setMonth(1); setYear(y => y + 1); }
-    else setMonth(m => m + 1);
+  const prevMonth = () => { if (month === 1) { setMonth(12); setYear(y => y - 1); } else setMonth(m => m - 1); };
+  const nextMonth = () => { if (month === 12) { setMonth(1); setYear(y => y + 1); } else setMonth(m => m + 1); };
+
+  // Returns null on success, error string on failure
+  const saveSettings = async (s: ContabilitaSettings): Promise<string | null> => {
+    try {
+      const res = await api.put("/api/contabilita/settings", s);
+      const data = await res.json();
+      if (!res.ok) return data?.error ?? "Errore salvataggio";
+      setSettings(s); setShowSettings(false); fetchAll();
+      return null;
+    } catch (e) { return String(e); }
   };
 
-  const saveSettings = async (s: ContabilitaSettings) => {
-    const res = await api.put("/api/contabilita/settings", s);
-    if (res.ok) { setSettings(s); setShowSettings(false); fetchAll(); }
-  };
-
-  const saveEntrata = async (data: Omit<Entrata, "id">) => {
-    const res = editEntrata
-      ? await api.patch(`/api/contabilita/entrate/${editEntrata.id}`, data)
-      : await api.post("/api/contabilita/entrate", data);
-    if (res.ok) { setAddEntrata(false); setEditEntrata(null); fetchAll(); }
+  const saveEntrata = async (data: Omit<Entrata, "id">): Promise<string | null> => {
+    try {
+      const res = editEntrata
+        ? await api.patch(`/api/contabilita/entrate/${editEntrata.id}`, data)
+        : await api.post("/api/contabilita/entrate", data);
+      const body = await res.json();
+      if (!res.ok) return body?.error ?? `Errore ${res.status}`;
+      setAddEntrata(false); setEditEntrata(null); fetchAll();
+      return null;
+    } catch (e) { return String(e); }
   };
 
   const deleteEntrata = async (id: string) => {
@@ -489,11 +601,16 @@ export default function Contabilita() {
     fetchAll();
   };
 
-  const saveUscita = async (data: Omit<Uscita, "id">) => {
-    const res = editUscita
-      ? await api.patch(`/api/contabilita/uscite/${editUscita.id}`, data)
-      : await api.post("/api/contabilita/uscite", data);
-    if (res.ok) { setAddUscita(false); setEditUscita(null); fetchAll(); }
+  const saveUscita = async (data: Omit<Uscita, "id">): Promise<string | null> => {
+    try {
+      const res = editUscita
+        ? await api.patch(`/api/contabilita/uscite/${editUscita.id}`, data)
+        : await api.post("/api/contabilita/uscite", data);
+      const body = await res.json();
+      if (!res.ok) return body?.error ?? `Errore ${res.status}`;
+      setAddUscita(false); setEditUscita(null); fetchAll();
+      return null;
+    } catch (e) { return String(e); }
   };
 
   const deleteUscita = async (id: string) => {
@@ -502,18 +619,8 @@ export default function Contabilita() {
     fetchAll();
   };
 
-  const beneficiarioLabel = (b: string) => {
-    if (b === "socio_a") return settings.socioAName.split(" ")[0];
-    if (b === "socio_b") return settings.socioBName.split(" ")[0];
-    return "50/50";
-  };
-
-  const pagatoDaLabel = (p: string) => {
-    if (p === "socio_a") return settings.socioAName.split(" ")[0];
-    if (p === "socio_b") return settings.socioBName.split(" ")[0];
-    return "Studio";
-  };
-
+  const benefLabel = (b: string) => b === "socio_a" ? settings.socioAName.split(" ")[0] : b === "socio_b" ? settings.socioBName.split(" ")[0] : "50/50";
+  const pagatoLabel = (p: string) => p === "socio_a" ? settings.socioAName.split(" ")[0] : p === "socio_b" ? settings.socioBName.split(" ")[0] : "Studio";
   const saldoColor = (n: number) => n >= 0 ? "text-[#4CAF50]" : "text-[#ef4444]";
 
   return (
@@ -524,152 +631,125 @@ export default function Contabilita() {
         <div className="flex items-center justify-between mb-6 flex-wrap gap-4">
           <div>
             <h1 className="text-2xl font-bold text-[#f5f5f5] tracking-tight">Contabilità</h1>
-            <p className="text-sm text-[#666] mt-0.5">Gestione finanziaria studio · {settings.socioAName} & {settings.socioBName}</p>
+            <p className="text-sm text-[#666] mt-0.5">{settings.socioAName} & {settings.socioBName} · Regime forfettario</p>
           </div>
-          <div className="flex items-center gap-2">
-            <button onClick={() => setShowSettings(true)} className="p-2.5 rounded-xl text-[#666] hover:text-[#f5f5f5] hover:bg-[#1a1a1a] border border-[rgba(255,255,255,0.06)] transition-colors">
-              <Settings size={16} />
-            </button>
-          </div>
+          <button onClick={() => setShowSettings(true)} className="p-2.5 rounded-xl text-[#666] hover:text-[#f5f5f5] hover:bg-[#1a1a1a] border border-[rgba(255,255,255,0.06)] transition-colors">
+            <Settings size={16} />
+          </button>
         </div>
 
         {/* Month selector */}
         <div className="flex items-center gap-3 mb-6">
-          <button onClick={prevMonth} className="p-2 rounded-xl border border-[rgba(255,255,255,0.06)] text-[#666] hover:text-[#f5f5f5] hover:bg-[#1a1a1a] transition-colors">
-            <ChevronLeft size={16} />
-          </button>
-          <div className="text-base font-semibold text-[#f5f5f5] min-w-[160px] text-center">
-            {monthNames[month - 1]} {year}
-          </div>
-          <button onClick={nextMonth} className="p-2 rounded-xl border border-[rgba(255,255,255,0.06)] text-[#666] hover:text-[#f5f5f5] hover:bg-[#1a1a1a] transition-colors">
-            <ChevronRight size={16} />
-          </button>
+          <button onClick={prevMonth} className="p-2 rounded-xl border border-[rgba(255,255,255,0.06)] text-[#666] hover:text-[#f5f5f5] hover:bg-[#1a1a1a] transition-colors"><ChevronLeft size={16} /></button>
+          <div className="text-base font-semibold text-[#f5f5f5] min-w-[160px] text-center">{monthNames[month - 1]} {year}</div>
+          <button onClick={nextMonth} className="p-2 rounded-xl border border-[rgba(255,255,255,0.06)] text-[#666] hover:text-[#f5f5f5] hover:bg-[#1a1a1a] transition-colors"><ChevronRight size={16} /></button>
         </div>
 
         {/* Tabs */}
         <div className="flex gap-1 p-1 bg-[#111] rounded-2xl mb-6 w-fit">
           {(["dashboard", "entrate", "uscite"] as Tab[]).map(t => (
-            <button
-              key={t}
-              onClick={() => setTab(t)}
-              className={`px-5 py-2 rounded-xl text-sm font-medium capitalize transition-all ${tab === t ? "bg-[#F5A623] text-black" : "text-[#666] hover:text-[#f5f5f5]"}`}
-            >
+            <button key={t} onClick={() => setTab(t)}
+              className={`px-5 py-2 rounded-xl text-sm font-medium transition-all ${tab === t ? "bg-[#F5A623] text-black" : "text-[#666] hover:text-[#f5f5f5]"}`}>
               {t === "dashboard" ? "Riepilogo" : t.charAt(0).toUpperCase() + t.slice(1)}
             </button>
           ))}
         </div>
 
-        {loading && (
-          <div className="text-center py-16 text-[#555]">Caricamento...</div>
-        )}
+        {loading && <div className="text-center py-16 text-[#555]">Caricamento...</div>}
 
-        {/* ── DASHBOARD TAB ── */}
+        {/* ── DASHBOARD ── */}
         {!loading && tab === "dashboard" && riepilogo && (
-          <div className="space-y-6">
-            {/* Compensazione */}
+          <div className="space-y-5">
             <CompensazioneBanner comp={riepilogo.compensazione} settings={settings} />
 
-            {/* KPI cards */}
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
               <StatCard label="Entrate Totali" value={fmt(riepilogo.entrate.totale)} color="bg-[#4CAF50]/20 text-[#4CAF50]" icon={TrendingUp} />
               <StatCard label="Uscite Totali" value={fmt(riepilogo.uscite.totale)} color="bg-[#ef4444]/20 text-[#ef4444]" icon={TrendingDown} />
-              <StatCard label="Accantonamento" value={fmt(riepilogo.accantonamento.totale)} sub={`${settings.forfettarioBase}% × ${settings.accAntonamentoRate}% su fatturato`} color="bg-[#F5A623]/20 text-[#F5A623]" icon={PiggyBank} />
+              <StatCard label="Accantonamento" value={fmt(riepilogo.accantonamento.totale)} sub={`${settings.forfettarioBase}%×${settings.accAntonamentoRate}% su fatturato`} color="bg-[#F5A623]/20 text-[#F5A623]" icon={PiggyBank} />
               <StatCard label="Netto Studio" value={fmt(riepilogo.netto.studio)} color="bg-[#8b5cf6]/20 text-[#8b5cf6]" icon={Wallet} />
             </div>
 
             {/* Soci breakdown */}
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-              {/* Socio A */}
-              <div className="bg-[#161616] border border-[rgba(255,255,255,0.06)] rounded-2xl p-5">
-                <div className="flex items-center justify-between mb-4">
-                  <div>
-                    <div className="text-xs text-[#666] uppercase tracking-wide mb-1">Socio A</div>
-                    <div className="text-base font-semibold text-[#f5f5f5]">{settings.socioAName}</div>
+              {[
+                { nome: settings.socioAName, label: "Socio A", saldo: riepilogo.saldo.socioA, netto: riepilogo.netto.socioA, acc: riepilogo.accantonamento.socioA, uscite: riepilogo.uscite.socioA, entrate: riepilogo.entrate.socioA + riepilogo.entrate.studio / 2 },
+                { nome: settings.socioBName, label: "Socio B", saldo: riepilogo.saldo.socioB, netto: riepilogo.netto.socioB, acc: riepilogo.accantonamento.socioB, uscite: riepilogo.uscite.socioB, entrate: riepilogo.entrate.socioB + riepilogo.entrate.studio / 2 },
+              ].map((s, i) => (
+                <div key={i} className="bg-[#161616] border border-[rgba(255,255,255,0.06)] rounded-2xl p-5">
+                  <div className="flex items-center justify-between mb-4">
+                    <div><div className="text-xs text-[#666] uppercase tracking-wide mb-1">{s.label}</div><div className="text-base font-semibold text-[#f5f5f5]">{s.nome}</div></div>
+                    <div className={`text-xl font-bold ${saldoColor(s.saldo)}`}>{fmt(s.saldo)}</div>
                   </div>
-                  <div className={`text-xl font-bold ${saldoColor(riepilogo.saldo.socioA)}`}>{fmt(riepilogo.saldo.socioA)}</div>
-                </div>
-                <div className="space-y-2">
-                  <div className="flex justify-between text-sm"><span className="text-[#555]">Entrate lorde</span><span className="text-[#f5f5f5]">{fmt(riepilogo.entrate.socioA + riepilogo.entrate.studio / 2)}</span></div>
-                  <div className="flex justify-between text-sm"><span className="text-[#555]">Netto (dopo acc.)</span><span className="text-[#4CAF50]">{fmt(riepilogo.netto.socioA)}</span></div>
-                  <div className="flex justify-between text-sm"><span className="text-[#555]">Accantonamento</span><span className="text-[#F5A623]">−{fmt(riepilogo.accantonamento.socioA)}</span></div>
-                  <div className="flex justify-between text-sm"><span className="text-[#555]">Uscite</span><span className="text-[#ef4444]">−{fmt(riepilogo.uscite.socioA)}</span></div>
-                  <div className="border-t border-[rgba(255,255,255,0.05)] pt-2 flex justify-between text-sm font-semibold">
-                    <span className="text-[#888]">Saldo netto</span>
-                    <span className={saldoColor(riepilogo.saldo.socioA)}>{fmt(riepilogo.saldo.socioA)}</span>
-                  </div>
-                </div>
-              </div>
-
-              {/* Socio B */}
-              <div className="bg-[#161616] border border-[rgba(255,255,255,0.06)] rounded-2xl p-5">
-                <div className="flex items-center justify-between mb-4">
-                  <div>
-                    <div className="text-xs text-[#666] uppercase tracking-wide mb-1">Socio B</div>
-                    <div className="text-base font-semibold text-[#f5f5f5]">{settings.socioBName}</div>
-                  </div>
-                  <div className={`text-xl font-bold ${saldoColor(riepilogo.saldo.socioB)}`}>{fmt(riepilogo.saldo.socioB)}</div>
-                </div>
-                <div className="space-y-2">
-                  <div className="flex justify-between text-sm"><span className="text-[#555]">Entrate lorde</span><span className="text-[#f5f5f5]">{fmt(riepilogo.entrate.socioB + riepilogo.entrate.studio / 2)}</span></div>
-                  <div className="flex justify-between text-sm"><span className="text-[#555]">Netto (dopo acc.)</span><span className="text-[#4CAF50]">{fmt(riepilogo.netto.socioB)}</span></div>
-                  <div className="flex justify-between text-sm"><span className="text-[#555]">Accantonamento</span><span className="text-[#F5A623]">−{fmt(riepilogo.accantonamento.socioB)}</span></div>
-                  <div className="flex justify-between text-sm"><span className="text-[#555]">Uscite</span><span className="text-[#ef4444]">−{fmt(riepilogo.uscite.socioB)}</span></div>
-                  <div className="border-t border-[rgba(255,255,255,0.05)] pt-2 flex justify-between text-sm font-semibold">
-                    <span className="text-[#888]">Saldo netto</span>
-                    <span className={saldoColor(riepilogo.saldo.socioB)}>{fmt(riepilogo.saldo.socioB)}</span>
+                  <div className="space-y-2">
+                    <div className="flex justify-between text-sm"><span className="text-[#555]">Entrate lorde</span><span className="text-[#f5f5f5]">{fmt(s.entrate)}</span></div>
+                    <div className="flex justify-between text-sm"><span className="text-[#555]">Accantonamento tasse</span><span className="text-[#F5A623]">−{fmt(s.acc)}</span></div>
+                    <div className="flex justify-between text-sm"><span className="text-[#555]">Netto dopo accantonamento</span><span className="text-[#4CAF50]">{fmt(s.netto)}</span></div>
+                    <div className="flex justify-between text-sm"><span className="text-[#555]">Uscite</span><span className="text-[#ef4444]">−{fmt(s.uscite)}</span></div>
+                    <div className="border-t border-[rgba(255,255,255,0.05)] pt-2 flex justify-between text-sm font-semibold">
+                      <span className="text-[#888]">Saldo disponibile</span>
+                      <span className={saldoColor(s.saldo)}>{fmt(s.saldo)}</span>
+                    </div>
                   </div>
                 </div>
-              </div>
+              ))}
             </div>
 
-            {/* Trend chart */}
+            {/* Grafico trend */}
             {trend.length > 0 && (
               <div className="bg-[#161616] border border-[rgba(255,255,255,0.06)] rounded-2xl p-5">
-                <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
                   <h3 className="text-sm font-semibold text-[#f5f5f5]">Andamento ultimi 6 mesi</h3>
-                  <div className="flex items-center gap-4 text-xs text-[#555]">
-                    <span className="flex items-center gap-1.5"><span className="w-3 h-2 rounded-sm bg-[#4CAF50]/70 inline-block" /> Entrate</span>
-                    <span className="flex items-center gap-1.5"><span className="w-3 h-2 rounded-sm bg-[#ef4444]/70 inline-block" /> Uscite</span>
+                  <div className="flex items-center gap-5 text-xs text-[#555]">
+                    <span className="flex items-center gap-1.5"><span className="w-3 h-0.5 bg-[#4CAF50] inline-block rounded" /> Entrate</span>
+                    <span className="flex items-center gap-1.5"><span className="w-3 h-0.5 bg-[#ef4444] inline-block rounded" /> Uscite</span>
+                    <span className="flex items-center gap-1.5"><span className="w-3 h-0.5 bg-[#F5A623] inline-block rounded border-dashed" style={{ borderBottom: "2px dashed #F5A623", height: 0, marginTop: 4 }} /> Accantonamento</span>
                   </div>
                 </div>
-                <BarChart data={trend} />
-                <div className="mt-3 grid grid-cols-3 gap-3">
-                  {trend.slice(-3).map((d, i) => (
-                    <div key={i} className="text-center">
-                      <div className="text-xs text-[#555] mb-1 capitalize">{d.label}</div>
-                      <div className="text-sm font-semibold text-[#f5f5f5]">{fmtShort(d.netto)}</div>
-                      <div className="text-xs text-[#555]">netto</div>
-                    </div>
-                  ))}
-                </div>
+                <TrendChart data={trend} />
               </div>
             )}
 
-            {/* Spese condivise detail */}
+            {/* Composizione entrate/uscite */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+              <div className="bg-[#161616] border border-[rgba(255,255,255,0.06)] rounded-2xl p-5">
+                <h3 className="text-sm font-semibold text-[#f5f5f5] mb-4">Composizione entrate</h3>
+                <DonutChart
+                  socioA={riepilogo.entrate.socioA}
+                  socioB={riepilogo.entrate.socioB}
+                  studio={riepilogo.entrate.studio}
+                  labelA={settings.socioAName.split(" ")[0]}
+                  labelB={settings.socioBName.split(" ")[0]}
+                />
+              </div>
+              <div className="bg-[#161616] border border-[rgba(255,255,255,0.06)] rounded-2xl p-5">
+                <h3 className="text-sm font-semibold text-[#f5f5f5] mb-4">Composizione uscite</h3>
+                <DonutChart
+                  socioA={riepilogo.uscite.socioA}
+                  socioB={riepilogo.uscite.socioB}
+                  studio={riepilogo.uscite.studio}
+                  labelA={settings.socioAName.split(" ")[0]}
+                  labelB={settings.socioBName.split(" ")[0]}
+                />
+              </div>
+            </div>
+
+            {/* Spese condivise */}
             <div className="bg-[#161616] border border-[rgba(255,255,255,0.06)] rounded-2xl p-5">
               <h3 className="text-sm font-semibold text-[#f5f5f5] mb-3">Spese condivise del periodo</h3>
               <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <div className="text-xs text-[#555] mb-1">Totale spese condivise</div>
-                  <div className="text-lg font-bold text-[#f5f5f5]">{fmt(riepilogo.uscite.condivise)}</div>
-                </div>
-                <div>
-                  <div className="text-xs text-[#555] mb-1">Quota per socio</div>
-                  <div className="text-lg font-bold text-[#f5f5f5]">{fmt(riepilogo.uscite.condivise / 2)}</div>
-                </div>
+                <div><div className="text-xs text-[#555] mb-1">Totale spese condivise</div><div className="text-lg font-bold text-[#f5f5f5]">{fmt(riepilogo.uscite.condivise)}</div></div>
+                <div><div className="text-xs text-[#555] mb-1">Quota per socio</div><div className="text-lg font-bold text-[#f5f5f5]">{fmt(riepilogo.uscite.condivise / 2)}</div></div>
               </div>
             </div>
           </div>
         )}
 
-        {/* ── ENTRATE TAB ── */}
+        {/* ── ENTRATE ── */}
         {!loading && tab === "entrate" && (
           <div>
             <div className="flex justify-between items-center mb-4">
-              <div className="text-sm text-[#555]">{entrate.length} voci · Totale: <span className="text-[#4CAF50] font-semibold">{fmt(entrate.reduce((s, e) => s + e.importo, 0))}</span></div>
-              <button onClick={() => setAddEntrata(true)} className={btnPrimary}>
-                <Plus size={15} /> Nuova entrata
-              </button>
+              <div className="text-sm text-[#555]">{entrate.length} voci · <span className="text-[#4CAF50] font-semibold">{fmt(entrate.reduce((s, e) => s + e.importo, 0))}</span></div>
+              <button onClick={() => setAddEntrata(true)} className={btnPrimary}><Plus size={15} /> Nuova entrata</button>
             </div>
             {entrate.length === 0 ? (
               <div className="text-center py-16 text-[#444]">Nessuna entrata in {monthNames[month - 1]} {year}</div>
@@ -677,33 +757,26 @@ export default function Contabilita() {
               <div className="space-y-2">
                 {entrate.map(e => {
                   const acc = e.fattura ? e.importo * (settings.forfettarioBase / 100) * (settings.accAntonamentoRate / 100) : 0;
-                  const netto = e.importo - acc;
                   return (
                     <div key={e.id} className="bg-[#161616] border border-[rgba(255,255,255,0.06)] rounded-2xl p-4 flex items-center gap-4">
-                      <div className={`w-2 h-12 rounded-full flex-shrink-0 ${e.fattura ? "bg-[#F5A623]" : "bg-[#4CAF50]"}`} />
+                      <div className={`w-2 h-10 rounded-full flex-shrink-0 ${e.fattura ? "bg-[#F5A623]" : "bg-[#4CAF50]"}`} />
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2 mb-1 flex-wrap">
                           <span className="text-sm font-medium text-[#f5f5f5] truncate">{e.descrizione}</span>
                           {e.fattura && <span className="text-[10px] bg-[#F5A623]/20 text-[#F5A623] px-1.5 py-0.5 rounded-md font-medium">FATTURA</span>}
                           <span className="text-[10px] bg-[#222] text-[#888] px-1.5 py-0.5 rounded-md">{e.categoria}</span>
-                          <span className="text-[10px] bg-[#222] text-[#888] px-1.5 py-0.5 rounded-md">{beneficiarioLabel(e.beneficiario)}</span>
+                          <span className="text-[10px] bg-[#222] text-[#888] px-1.5 py-0.5 rounded-md">{benefLabel(e.beneficiario)}</span>
                         </div>
                         <div className="flex items-center gap-4 text-xs text-[#555]">
                           <span>{new Date(e.data).toLocaleDateString("it-IT")}</span>
-                          {e.fattura && <span className="text-[#F5A623]">Acc. {fmt(acc)}</span>}
-                          <span className="text-[#4CAF50]">Netto {fmt(netto)}</span>
+                          {acc > 0 && <span className="text-[#F5A623]">Acc. {fmt(acc)}</span>}
+                          <span className="text-[#4CAF50]">Netto {fmt(e.importo - acc)}</span>
                         </div>
                       </div>
-                      <div className="text-right flex-shrink-0">
-                        <div className="text-base font-bold text-[#f5f5f5]">{fmt(e.importo)}</div>
-                      </div>
+                      <div className="text-base font-bold text-[#f5f5f5] flex-shrink-0">{fmt(e.importo)}</div>
                       <div className="flex gap-1 flex-shrink-0">
-                        <button onClick={() => setEditEntrata(e)} className="p-2 rounded-lg text-[#555] hover:text-[#F5A623] hover:bg-[#1a1a1a] transition-colors">
-                          <Pencil size={14} />
-                        </button>
-                        <button onClick={() => deleteEntrata(e.id)} className="p-2 rounded-lg text-[#555] hover:text-[#ef4444] hover:bg-[#1a1a1a] transition-colors">
-                          <Trash2 size={14} />
-                        </button>
+                        <button onClick={() => setEditEntrata(e)} className="p-2 rounded-lg text-[#555] hover:text-[#F5A623] hover:bg-[#1a1a1a] transition-colors"><Pencil size={14} /></button>
+                        <button onClick={() => deleteEntrata(e.id)} className="p-2 rounded-lg text-[#555] hover:text-[#ef4444] hover:bg-[#1a1a1a] transition-colors"><Trash2 size={14} /></button>
                       </div>
                     </div>
                   );
@@ -713,14 +786,12 @@ export default function Contabilita() {
           </div>
         )}
 
-        {/* ── USCITE TAB ── */}
+        {/* ── USCITE ── */}
         {!loading && tab === "uscite" && (
           <div>
             <div className="flex justify-between items-center mb-4">
-              <div className="text-sm text-[#555]">{uscite.length} voci · Totale: <span className="text-[#ef4444] font-semibold">{fmt(uscite.reduce((s, u) => s + u.importo, 0))}</span></div>
-              <button onClick={() => setAddUscita(true)} className={btnPrimary}>
-                <Plus size={15} /> Nuova uscita
-              </button>
+              <div className="text-sm text-[#555]">{uscite.length} voci · <span className="text-[#ef4444] font-semibold">{fmt(uscite.reduce((s, u) => s + u.importo, 0))}</span></div>
+              <button onClick={() => setAddUscita(true)} className={btnPrimary}><Plus size={15} /> Nuova uscita</button>
             </div>
             {uscite.length === 0 ? (
               <div className="text-center py-16 text-[#444]">Nessuna uscita in {monthNames[month - 1]} {year}</div>
@@ -728,29 +799,23 @@ export default function Contabilita() {
               <div className="space-y-2">
                 {uscite.map(u => (
                   <div key={u.id} className="bg-[#161616] border border-[rgba(255,255,255,0.06)] rounded-2xl p-4 flex items-center gap-4">
-                    <div className={`w-2 h-12 rounded-full flex-shrink-0 ${u.divisiPerMeta ? "bg-[#F5A623]" : "bg-[#ef4444]"}`} />
+                    <div className={`w-2 h-10 rounded-full flex-shrink-0 ${u.divisiPerMeta ? "bg-[#F5A623]" : "bg-[#ef4444]"}`} />
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2 mb-1 flex-wrap">
                         <span className="text-sm font-medium text-[#f5f5f5] truncate">{u.descrizione}</span>
                         {u.divisiPerMeta && <span className="text-[10px] bg-[#F5A623]/20 text-[#F5A623] px-1.5 py-0.5 rounded-md font-medium">÷2</span>}
                         <span className="text-[10px] bg-[#222] text-[#888] px-1.5 py-0.5 rounded-md">{u.categoria}</span>
-                        <span className="text-[10px] bg-[#222] text-[#888] px-1.5 py-0.5 rounded-md">Pag. {pagatoDaLabel(u.pagatoDa)}</span>
+                        <span className="text-[10px] bg-[#222] text-[#888] px-1.5 py-0.5 rounded-md">Pag. {pagatoLabel(u.pagatoDa)}</span>
                       </div>
                       <div className="flex items-center gap-4 text-xs text-[#555]">
                         <span>{new Date(u.data).toLocaleDateString("it-IT")}</span>
                         {u.divisiPerMeta && <span className="text-[#F5A623]">Quota/socio: {fmt(u.importo / 2)}</span>}
                       </div>
                     </div>
-                    <div className="text-right flex-shrink-0">
-                      <div className="text-base font-bold text-[#f5f5f5]">{fmt(u.importo)}</div>
-                    </div>
+                    <div className="text-base font-bold text-[#f5f5f5] flex-shrink-0">{fmt(u.importo)}</div>
                     <div className="flex gap-1 flex-shrink-0">
-                      <button onClick={() => setEditUscita(u)} className="p-2 rounded-lg text-[#555] hover:text-[#F5A623] hover:bg-[#1a1a1a] transition-colors">
-                        <Pencil size={14} />
-                      </button>
-                      <button onClick={() => deleteUscita(u.id)} className="p-2 rounded-lg text-[#555] hover:text-[#ef4444] hover:bg-[#1a1a1a] transition-colors">
-                        <Trash2 size={14} />
-                      </button>
+                      <button onClick={() => setEditUscita(u)} className="p-2 rounded-lg text-[#555] hover:text-[#F5A623] hover:bg-[#1a1a1a] transition-colors"><Pencil size={14} /></button>
+                      <button onClick={() => deleteUscita(u.id)} className="p-2 rounded-lg text-[#555] hover:text-[#ef4444] hover:bg-[#1a1a1a] transition-colors"><Trash2 size={14} /></button>
                     </div>
                   </div>
                 ))}
@@ -765,23 +830,13 @@ export default function Contabilita() {
 
       {(addEntrata || editEntrata) && (
         <Modal title={editEntrata ? "Modifica entrata" : "Nuova entrata"} onClose={() => { setAddEntrata(false); setEditEntrata(null); }}>
-          <EntrataForm
-            initial={editEntrata ?? undefined}
-            settings={settings}
-            onSave={saveEntrata}
-            onClose={() => { setAddEntrata(false); setEditEntrata(null); }}
-          />
+          <EntrataForm initial={editEntrata ?? undefined} settings={settings} onSave={saveEntrata} onClose={() => { setAddEntrata(false); setEditEntrata(null); }} />
         </Modal>
       )}
 
       {(addUscita || editUscita) && (
         <Modal title={editUscita ? "Modifica uscita" : "Nuova uscita"} onClose={() => { setAddUscita(false); setEditUscita(null); }}>
-          <UscitaForm
-            initial={editUscita ?? undefined}
-            settings={settings}
-            onSave={saveUscita}
-            onClose={() => { setAddUscita(false); setEditUscita(null); }}
-          />
+          <UscitaForm initial={editUscita ?? undefined} settings={settings} onSave={saveUscita} onClose={() => { setAddUscita(false); setEditUscita(null); }} />
         </Modal>
       )}
     </DashboardLayout>
