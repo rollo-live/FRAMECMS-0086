@@ -18,6 +18,7 @@ const VideoPage = lazy(() => import("./pages/video"));
 const VideoDetail = lazy(() => import("./pages/video-detail"));
 const Impostazioni = lazy(() => import("./pages/impostazioni"));
 const Prenotazioni = lazy(() => import("./pages/prenotazioni"));
+const Contabilita = lazy(() => import("./pages/contabilita"));
 const Booking = lazy(() => import("./pages/booking"));
 
 // Public pages
@@ -209,6 +210,16 @@ function App() {
             <AuthGuard>
               <ProtectedLayout>
                 <Prenotazioni />
+              </ProtectedLayout>
+            </AuthGuard>
+          }
+        />
+        <Route
+          path="/contabilita"
+          element={
+            <AuthGuard>
+              <ProtectedLayout>
+                <Contabilita />
               </ProtectedLayout>
             </AuthGuard>
           }

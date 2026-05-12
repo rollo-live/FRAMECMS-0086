@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
-import { LayoutDashboard, Users, FileText, FolderOpen, Image, Video, Settings, LogOut, Aperture, Receipt, X, CalendarCheck } from "lucide-react";
+import { LayoutDashboard, Users, FileText, FolderOpen, Image, Video, Settings, LogOut, Aperture, Receipt, X, CalendarCheck, BookOpen } from "lucide-react";
 import { authClient } from "../../lib/auth";
 
 const navItems = [
@@ -12,6 +12,7 @@ const navItems = [
   { icon: Image, label: "Gallery", href: "/gallery" },
   { icon: Video, label: "Video Review", href: "/video" },
   { icon: CalendarCheck, label: "Prenotazioni", href: "/prenotazioni", badge: true },
+  { icon: BookOpen, label: "Contabilità", href: "/contabilita" },
 ];
 
 interface SidebarProps {

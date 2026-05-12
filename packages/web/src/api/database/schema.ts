@@ -236,6 +236,46 @@ export const appointments = sqliteTable("appointments", {
   updatedAt: integer("updated_at", { mode: "timestamp" }).$defaultFn(() => new Date()),
 });
 
+// ─── CONTABILITÀ ─────────────────────────────────────────────────────────────
+
+export const contabilitaSettings = sqliteTable("contabilita_settings", {
+  id: text("id").primaryKey(),
+  tenantId: text("tenant_id").notNull().references(() => tenants.id).unique(),
+  socioAName: text("socio_a_name").notNull().default("Alessio Rollo"),
+  socioBName: text("socio_b_name").notNull().default("Gianluca Distante"),
+  accAntonamentoRate: real("accantonamento_rate").notNull().default(20), // percentage, e.g. 20
+  forfettarioBase: real("forfettario_base").notNull().default(78), // percentage, e.g. 78
+  updatedAt: integer("updated_at", { mode: "timestamp" }).$defaultFn(() => new Date()),
+});
+
+export const entrate = sqliteTable("entrate", {
+  id: text("id").primaryKey(),
+  tenantId: text("tenant_id").notNull().references(() => tenants.id),
+  descrizione: text("descrizione").notNull(),
+  importo: real("importo").notNull(),
+  beneficiario: text("beneficiario").notNull().default("split"), // "socio_a" | "socio_b" | "split"
+  fattura: integer("fattura", { mode: "boolean" }).notNull().default(false),
+  categoria: text("categoria").notNull().default("Altro"),
+  note: text("note"),
+  data: integer("data", { mode: "timestamp" }).$defaultFn(() => new Date()),
+  createdAt: integer("created_at", { mode: "timestamp" }).$defaultFn(() => new Date()),
+  updatedAt: integer("updated_at", { mode: "timestamp" }).$defaultFn(() => new Date()),
+});
+
+export const uscite = sqliteTable("uscite", {
+  id: text("id").primaryKey(),
+  tenantId: text("tenant_id").notNull().references(() => tenants.id),
+  descrizione: text("descrizione").notNull(),
+  importo: real("importo").notNull(),
+  categoria: text("categoria").notNull().default("Altro"),
+  divisiPerMeta: integer("divisi_per_meta", { mode: "boolean" }).notNull().default(false),
+  pagatoDa: text("pagato_da").notNull().default("studio"), // "socio_a" | "socio_b" | "studio"
+  note: text("note"),
+  data: integer("data", { mode: "timestamp" }).$defaultFn(() => new Date()),
+  createdAt: integer("created_at", { mode: "timestamp" }).$defaultFn(() => new Date()),
+  updatedAt: integer("updated_at", { mode: "timestamp" }).$defaultFn(() => new Date()),
+});
+
 // ─── GOOGLE CALENDAR TOKENS ──────────────────────────────────────────────────
 export const googleCalendarTokens = sqliteTable("google_calendar_tokens", {
   id: text("id").primaryKey(),
