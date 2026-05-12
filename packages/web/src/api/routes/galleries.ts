@@ -4,7 +4,7 @@ import * as schema from "../database/schema";
 import { eq, and, desc, asc, count } from "drizzle-orm";
 import { requireAuth } from "../middleware/auth";
 import { nanoid } from "../lib/id";
-import { getPresignedUploadUrl, getPresignedGetUrl } from "../lib/s3";
+import { getPresignedUploadUrl, getPresignedGetUrl, deleteObject } from "../lib/s3";
 
 async function getTenantId(userId: string) {
   const p = await db.select().from(schema.userProfiles).where(eq(schema.userProfiles.userId, userId)).get();
@@ -390,6 +390,52 @@ export const galleries = new Hono()
       }))
     ).returning();
     return c.json({ photos: inserted }, 201);
+  })
+
+  // ── Delete gallery (+ all photos from R2) ────────────────────────────────
+  .delete("/:id", requireAuth, async (c) => {
+    const user = c.get("user")!;
+    const tenantId = await getTenantId(user.id);
+    if (!tenantId) return c.json({ error: "Non autorizzato" }, 401);
+    const gallery = await db.select().from(schema.galleries)
+      .where(and(eq(schema.galleries.id, c.req.param("id")), eq(schema.galleries.tenantId, tenantId))).get();
+    if (!gallery) return c.json({ error: "Non trovato" }, 404);
+
+    // Delete all photos from R2
+    const photos = await db.select().from(schema.photos).where(eq(schema.photos.galleryId, gallery.id)).all();
+    await Promise.allSettled(photos.map((p) => deleteObject(p.r2Key)));
+
+    // Delete DB records (photos, comments, access requests, gallery)
+    await db.delete(schema.photoComments).where(
+      eq(schema.photoComments.photoId, photos[0]?.id ?? "") // covered via cascade or manual
+    );
+    for (const p of photos) {
+      await db.delete(schema.photoComments).where(eq(schema.photoComments.photoId, p.id));
+    }
+    await db.delete(schema.photos).where(eq(schema.photos.galleryId, gallery.id));
+    await db.delete(schema.galleryAccess).where(eq(schema.galleryAccess.galleryId, gallery.id));
+    await db.delete(schema.galleries).where(eq(schema.galleries.id, gallery.id));
+
+    return c.json({ ok: true }, 200);
+  })
+
+  // ── Delete single photo from gallery (+ R2) ──────────────────────────────
+  .delete("/:id/photos/:photoId", requireAuth, async (c) => {
+    const user = c.get("user")!;
+    const tenantId = await getTenantId(user.id);
+    if (!tenantId) return c.json({ error: "Non autorizzato" }, 401);
+    const gallery = await db.select().from(schema.galleries)
+      .where(and(eq(schema.galleries.id, c.req.param("id")), eq(schema.galleries.tenantId, tenantId))).get();
+    if (!gallery) return c.json({ error: "Gallery non trovata" }, 404);
+    const photo = await db.select().from(schema.photos)
+      .where(and(eq(schema.photos.id, c.req.param("photoId")), eq(schema.photos.galleryId, gallery.id))).get();
+    if (!photo) return c.json({ error: "Foto non trovata" }, 404);
+
+    await deleteObject(photo.r2Key);
+    await db.delete(schema.photoComments).where(eq(schema.photoComments.photoId, photo.id));
+    await db.delete(schema.photos).where(eq(schema.photos.id, photo.id));
+
+    return c.json({ ok: true }, 200);
   })
 
   // ── Admin: list access requests ───────────────────────────────────────────

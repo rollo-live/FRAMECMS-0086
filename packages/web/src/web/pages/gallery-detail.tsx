@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { useParams, Link } from "react-router-dom";
 import { api } from "../lib/api";
 import { DashboardLayout } from "../components/layout/dashboard-layout";
-import { ArrowLeft, Link2, Upload, X, Check, Settings, Users } from "lucide-react";
+import { ArrowLeft, Link2, Upload, X, Check, Settings, Users, Trash2 } from "lucide-react";
 
 type Photo = { id: string; url: string; filename: string; likeCount: number; comments?: Comment[] };
 type Comment = { id: string; content: string; authorName: string; createdAt: string };
@@ -24,6 +24,7 @@ export default function GalleryDetail() {
   const [commentName, setCommentName] = useState("");
   const [posting, setPosting] = useState(false);
   const [dragActive, setDragActive] = useState(false);
+  const [deletingPhoto, setDeletingPhoto] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [accessRequests, setAccessRequests] = useState<AccessRequest[]>([]);
@@ -131,6 +132,16 @@ export default function GalleryDetail() {
   const handleAccessDecision = async (accessId: string, status: "approved" | "rejected") => {
     await api.patch(`/api/galleries/${id}/access/${accessId}`, { status });
     setAccessRequests(prev => prev.map(r => r.id === accessId ? { ...r, status } : r));
+  };
+
+  const deletePhoto = async (photoId: string) => {
+    setDeletingPhoto(photoId);
+    const res = await api.delete(`/api/galleries/${id}/photos/${photoId}`);
+    if (res.ok) {
+      setPhotos((prev) => prev.filter((p) => p.id !== photoId));
+      if (selectedPhoto?.id === photoId) setSelectedPhoto(null);
+    }
+    setDeletingPhoto(null);
   };
 
   const generateShareLink = async () => {
@@ -362,15 +373,27 @@ export default function GalleryDetail() {
             {photos.map((photo) => (
               <div
                 key={photo.id}
-                onClick={() => openPhoto(photo)}
                 className="relative aspect-square rounded-lg overflow-hidden cursor-pointer bg-[#111] group"
               >
-                <img src={photo.url} alt={photo.filename} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" />
+                <img
+                  src={photo.url}
+                  alt={photo.filename}
+                  onClick={() => openPhoto(photo)}
+                  className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                />
                 {photo.likeCount > 0 && (
                   <div className="absolute bottom-1.5 right-1.5 bg-black/70 text-white text-[10px] rounded-full px-1.5 py-0.5">
                     ❤️ {photo.likeCount}
                   </div>
                 )}
+                <button
+                  onClick={(e) => { e.stopPropagation(); deletePhoto(photo.id); }}
+                  disabled={deletingPhoto === photo.id}
+                  className="absolute top-1.5 right-1.5 p-1.5 bg-black/70 text-red-400 rounded-lg opacity-0 group-hover:opacity-100 hover:bg-red-500/20 transition-all disabled:opacity-50"
+                  title="Elimina foto"
+                >
+                  <Trash2 size={12} />
+                </button>
               </div>
             ))}
           </div>

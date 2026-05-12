@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { api } from "../lib/api";
 import { DashboardLayout } from "../components/layout/dashboard-layout";
-import { Plus, Image as ImageIcon, Link2, Check, ExternalLink } from "lucide-react";
+import { Plus, Image as ImageIcon, Link2, Check, ExternalLink, Trash2 } from "lucide-react";
 
 type Gallery = {
   id: string;
@@ -24,6 +24,8 @@ export default function GalleryPage() {
   const [form, setForm] = useState({ name: "", projectId: "" });
   const [creating, setCreating] = useState(false);
   const [copied, setCopied] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState<string | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
   const [searchParams] = useSearchParams();
   const filterProjectId = searchParams.get("projectId");
 
@@ -58,6 +60,16 @@ export default function GalleryPage() {
       const d = await res.json();
       setGalleries((prev) => prev.map((g) => (g.id === galleryId ? { ...g, shareToken: d.shareToken ?? d.token } : g)));
     }
+  };
+
+  const deleteGallery = async (id: string) => {
+    setDeleting(id);
+    const res = await api.delete(`/api/galleries/${id}`);
+    if (res.ok) {
+      setGalleries((prev) => prev.filter((g) => g.id !== id));
+    }
+    setDeleting(null);
+    setConfirmDelete(null);
   };
 
   const copyLink = (token: string) => {
@@ -128,29 +140,54 @@ export default function GalleryPage() {
                       {gallery.photoCount ?? 0} foto
                     </span>
                   </div>
-                  <div className="flex gap-2">
-                    <Link
-                      to={`/gallery/${gallery.id}`}
-                      className="flex-1 flex items-center justify-center gap-1.5 py-2 text-xs font-semibold bg-[#F5A623] text-black rounded-lg hover:bg-[#e09615] transition-colors"
-                    >
-                      <ExternalLink size={12} /> Apri
-                    </Link>
-                    {gallery.shareToken ? (
+                  {confirmDelete === gallery.id ? (
+                    <div className="flex gap-2">
                       <button
-                        onClick={() => copyLink(gallery.shareToken!)}
-                        className={`flex-1 flex items-center justify-center gap-1.5 py-2 text-xs font-semibold rounded-lg border transition-all ${copied === gallery.shareToken ? "bg-[rgba(16,185,129,0.1)] border-[rgba(16,185,129,0.3)] text-green-400" : "bg-transparent border-[rgba(255,255,255,0.08)] text-[#a0a0a0] hover:text-[#f5f5f5]"}`}
+                        onClick={() => setConfirmDelete(null)}
+                        className="flex-1 py-2 text-xs font-medium text-[#a0a0a0] border border-[rgba(255,255,255,0.08)] rounded-lg hover:text-[#f5f5f5] transition-colors"
                       >
-                        {copied === gallery.shareToken ? <><Check size={12} /> Copiato</> : <><Link2 size={12} /> Copia link</>}
+                        Annulla
                       </button>
-                    ) : (
                       <button
-                        onClick={() => generateShareLink(gallery.id)}
-                        className="flex-1 flex items-center justify-center gap-1.5 py-2 text-xs font-semibold bg-transparent border border-[rgba(255,255,255,0.08)] text-[#a0a0a0] hover:text-[#f5f5f5] rounded-lg transition-colors"
+                        onClick={() => deleteGallery(gallery.id)}
+                        disabled={deleting === gallery.id}
+                        className="flex-1 py-2 text-xs font-semibold bg-red-500/20 border border-red-500/40 text-red-400 rounded-lg hover:bg-red-500/30 disabled:opacity-50 transition-colors"
                       >
-                        <Link2 size={12} /> Genera link
+                        {deleting === gallery.id ? "Elimino..." : "Conferma"}
                       </button>
-                    )}
-                  </div>
+                    </div>
+                  ) : (
+                    <div className="flex gap-2">
+                      <Link
+                        to={`/gallery/${gallery.id}`}
+                        className="flex-1 flex items-center justify-center gap-1.5 py-2 text-xs font-semibold bg-[#F5A623] text-black rounded-lg hover:bg-[#e09615] transition-colors"
+                      >
+                        <ExternalLink size={12} /> Apri
+                      </Link>
+                      {gallery.shareToken ? (
+                        <button
+                          onClick={() => copyLink(gallery.shareToken!)}
+                          className={`flex-1 flex items-center justify-center gap-1.5 py-2 text-xs font-semibold rounded-lg border transition-all ${copied === gallery.shareToken ? "bg-[rgba(16,185,129,0.1)] border-[rgba(16,185,129,0.3)] text-green-400" : "bg-transparent border-[rgba(255,255,255,0.08)] text-[#a0a0a0] hover:text-[#f5f5f5]"}`}
+                        >
+                          {copied === gallery.shareToken ? <><Check size={12} /> Copiato</> : <><Link2 size={12} /> Copia link</>}
+                        </button>
+                      ) : (
+                        <button
+                          onClick={() => generateShareLink(gallery.id)}
+                          className="flex-1 flex items-center justify-center gap-1.5 py-2 text-xs font-semibold bg-transparent border border-[rgba(255,255,255,0.08)] text-[#a0a0a0] hover:text-[#f5f5f5] rounded-lg transition-colors"
+                        >
+                          <Link2 size={12} /> Genera link
+                        </button>
+                      )}
+                      <button
+                        onClick={() => setConfirmDelete(gallery.id)}
+                        className="p-2 text-[#555] hover:text-red-400 border border-[rgba(255,255,255,0.08)] rounded-lg hover:border-red-500/30 transition-colors"
+                        title="Elimina gallery"
+                      >
+                        <Trash2 size={13} />
+                      </button>
+                    </div>
+                  )}
                 </div>
               </div>
             ))}
