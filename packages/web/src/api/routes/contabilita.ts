@@ -5,9 +5,36 @@ import { eq, and, gte, lte, desc } from "drizzle-orm";
 import { nanoid } from "../lib/id";
 import { requireAuth } from "../middleware/auth";
 
-async function getTenantId(userId: string) {
+/**
+ * Ritorna il tenantId dell'utente.
+ * Se l'utente non ha ancora un profilo/tenant, ne crea uno automaticamente.
+ * Accetta opzionalmente nome/email per lo slug (evita query extra).
+ */
+async function getTenantId(userId: string, userMeta?: { name?: string; email?: string }): Promise<string> {
   const p = await db.select().from(schema.userProfiles).where(eq(schema.userProfiles.userId, userId)).get();
-  return p?.tenantId ?? null;
+  if (p?.tenantId) return p.tenantId;
+
+  // Auto-provisioning
+  const baseName = userMeta?.name ?? userMeta?.email?.split("@")[0] ?? "utente";
+  const slug = baseName.toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9-]/g, "") + "-" + nanoid(6);
+  const tenantId = nanoid();
+
+  await db.insert(schema.tenants).values({
+    id: tenantId,
+    ownerId: userId,
+    name: baseName,
+    slug,
+    primaryColor: "#F5A623",
+  });
+
+  await db.insert(schema.userProfiles).values({
+    userId,
+    tenantId,
+    role: "owner",
+  });
+
+  console.log(`[contabilita] Auto-provisioned tenant ${tenantId} for user ${userId} (${baseName})`);
+  return tenantId;
 }
 
 export const contabilita = new Hono()
@@ -17,15 +44,7 @@ export const contabilita = new Hono()
   .get("/settings", requireAuth, async (c) => {
     try {
       const user = c.get("user")!;
-      const tenantId = await getTenantId(user.id);
-      if (!tenantId) {
-        return c.json({
-          socioAName: "Alessio Rollo",
-          socioBName: "Gianluca Distante",
-          accAntonamentoRate: 20,
-          forfettarioBase: 78,
-        }, 200);
-      }
+      const tenantId = await getTenantId(user.id, { name: user.name, email: user.email });
       const settings = await db
         .select()
         .from(schema.contabilitaSettings)
@@ -50,8 +69,7 @@ export const contabilita = new Hono()
   .put("/settings", requireAuth, async (c) => {
     try {
       const user = c.get("user")!;
-      const tenantId = await getTenantId(user.id);
-      if (!tenantId) return c.json({ error: "Nessun tenant" }, 400);
+      const tenantId = await getTenantId(user.id, { name: user.name, email: user.email });
       const body = await c.req.json();
       const existing = await db
         .select()
@@ -92,8 +110,7 @@ export const contabilita = new Hono()
   .get("/entrate", requireAuth, async (c) => {
     try {
       const user = c.get("user")!;
-      const tenantId = await getTenantId(user.id);
-      if (!tenantId) return c.json([], 200);
+      const tenantId = await getTenantId(user.id, { name: user.name, email: user.email });
       const { month, year } = c.req.query();
       let whereClause;
       if (month && year) {
@@ -118,8 +135,7 @@ export const contabilita = new Hono()
   .post("/entrate", requireAuth, async (c) => {
     try {
       const user = c.get("user")!;
-      const tenantId = await getTenantId(user.id);
-      if (!tenantId) return c.json({ error: "Nessun tenant" }, 400);
+      const tenantId = await getTenantId(user.id, { name: user.name, email: user.email });
       const body = await c.req.json();
       const id = nanoid();
       const dataVal = body.data ? new Date(body.data) : new Date();
@@ -145,8 +161,7 @@ export const contabilita = new Hono()
   .patch("/entrate/:id", requireAuth, async (c) => {
     try {
       const user = c.get("user")!;
-      const tenantId = await getTenantId(user.id);
-      if (!tenantId) return c.json({ error: "Nessun tenant" }, 400);
+      const tenantId = await getTenantId(user.id, { name: user.name, email: user.email });
       const { id } = c.req.param();
       const body = await c.req.json();
       const updateData: Record<string, any> = { updatedAt: new Date() };
@@ -170,8 +185,7 @@ export const contabilita = new Hono()
   .delete("/entrate/:id", requireAuth, async (c) => {
     try {
       const user = c.get("user")!;
-      const tenantId = await getTenantId(user.id);
-      if (!tenantId) return c.json({ error: "Nessun tenant" }, 400);
+      const tenantId = await getTenantId(user.id, { name: user.name, email: user.email });
       const { id } = c.req.param();
       await db.delete(schema.entrate)
         .where(and(eq(schema.entrate.id, id), eq(schema.entrate.tenantId, tenantId)));
@@ -187,8 +201,7 @@ export const contabilita = new Hono()
   .get("/uscite", requireAuth, async (c) => {
     try {
       const user = c.get("user")!;
-      const tenantId = await getTenantId(user.id);
-      if (!tenantId) return c.json([], 200);
+      const tenantId = await getTenantId(user.id, { name: user.name, email: user.email });
       const { month, year } = c.req.query();
       let whereClause;
       if (month && year) {
@@ -213,8 +226,7 @@ export const contabilita = new Hono()
   .post("/uscite", requireAuth, async (c) => {
     try {
       const user = c.get("user")!;
-      const tenantId = await getTenantId(user.id);
-      if (!tenantId) return c.json({ error: "Nessun tenant" }, 400);
+      const tenantId = await getTenantId(user.id, { name: user.name, email: user.email });
       const body = await c.req.json();
       const id = nanoid();
       const dataVal = body.data ? new Date(body.data) : new Date();
@@ -240,8 +252,7 @@ export const contabilita = new Hono()
   .patch("/uscite/:id", requireAuth, async (c) => {
     try {
       const user = c.get("user")!;
-      const tenantId = await getTenantId(user.id);
-      if (!tenantId) return c.json({ error: "Nessun tenant" }, 400);
+      const tenantId = await getTenantId(user.id, { name: user.name, email: user.email });
       const { id } = c.req.param();
       const body = await c.req.json();
       const updateData: Record<string, any> = { updatedAt: new Date() };
@@ -265,8 +276,7 @@ export const contabilita = new Hono()
   .delete("/uscite/:id", requireAuth, async (c) => {
     try {
       const user = c.get("user")!;
-      const tenantId = await getTenantId(user.id);
-      if (!tenantId) return c.json({ error: "Nessun tenant" }, 400);
+      const tenantId = await getTenantId(user.id, { name: user.name, email: user.email });
       const { id } = c.req.param();
       await db.delete(schema.uscite)
         .where(and(eq(schema.uscite.id, id), eq(schema.uscite.tenantId, tenantId)));
@@ -282,8 +292,7 @@ export const contabilita = new Hono()
   .get("/riepilogo", requireAuth, async (c) => {
     try {
       const user = c.get("user")!;
-      const tenantId = await getTenantId(user.id);
-      if (!tenantId) return c.json({ error: "Nessun tenant" }, 400);
+      const tenantId = await getTenantId(user.id, { name: user.name, email: user.email });
       const { month, year } = c.req.query();
 
       const settings = await db
@@ -394,8 +403,7 @@ export const contabilita = new Hono()
   .get("/trend", requireAuth, async (c) => {
     try {
       const user = c.get("user")!;
-      const tenantId = await getTenantId(user.id);
-      if (!tenantId) return c.json([], 200);
+      const tenantId = await getTenantId(user.id, { name: user.name, email: user.email });
       const now = new Date();
       const settings = await db.select().from(schema.contabilitaSettings)
         .where(eq(schema.contabilitaSettings.tenantId, tenantId)).get();
