@@ -1,6 +1,6 @@
-import React from "react";
+import React, { useEffect, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
-import { LayoutDashboard, Users, FileText, FolderOpen, Image, Video, Settings, LogOut, Aperture, Receipt, X } from "lucide-react";
+import { LayoutDashboard, Users, FileText, FolderOpen, Image, Video, Settings, LogOut, Aperture, Receipt, X, CalendarCheck } from "lucide-react";
 import { authClient } from "../../lib/auth";
 
 const navItems = [
@@ -11,6 +11,7 @@ const navItems = [
   { icon: FolderOpen, label: "Progetti", href: "/progetti" },
   { icon: Image, label: "Gallery", href: "/gallery" },
   { icon: Video, label: "Video Review", href: "/video" },
+  { icon: CalendarCheck, label: "Prenotazioni", href: "/prenotazioni", badge: true },
 ];
 
 interface SidebarProps {
@@ -21,6 +22,23 @@ interface SidebarProps {
 export function Sidebar({ open, onClose }: SidebarProps) {
   const location = useLocation();
   const navigate = useNavigate();
+  const [pendingCount, setPendingCount] = useState(0);
+  const { data: session } = authClient.useSession();
+
+  useEffect(() => {
+    if (!session) return;
+    fetch("/api/bookings/pending-count", { credentials: "include" })
+      .then((r) => r.ok ? r.json() : { count: 0 })
+      .then((d) => setPendingCount(d.count ?? 0))
+      .catch(() => setPendingCount(0));
+    const interval = setInterval(() => {
+      fetch("/api/bookings/pending-count", { credentials: "include" })
+        .then((r) => r.ok ? r.json() : { count: 0 })
+        .then((d) => setPendingCount(d.count ?? 0))
+        .catch(() => {});
+    }, 60_000);
+    return () => clearInterval(interval);
+  }, [session]);
 
   const handleLogout = async () => {
     await authClient.signOut();
@@ -68,8 +86,9 @@ export function Sidebar({ open, onClose }: SidebarProps) {
         {/* Nav */}
         <nav className="flex-1 px-3 py-4 overflow-y-auto">
           <div className="space-y-0.5">
-            {navItems.map(({ icon: Icon, label, href }) => {
+            {navItems.map(({ icon: Icon, label, href, badge }) => {
               const active = location.pathname === href || location.pathname.startsWith(href + "/");
+              const showBadge = badge && pendingCount > 0;
               return (
                 <Link key={href} to={href} onClick={handleNavClick}>
                   <span className={`flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all duration-150 cursor-pointer
@@ -78,7 +97,24 @@ export function Sidebar({ open, onClose }: SidebarProps) {
                       : "text-[#a0a0a0] hover:bg-[#1a1a1a] hover:text-[#f5f5f5]"
                     }`}>
                     <Icon size={16} className="shrink-0" />
-                    {label}
+                    <span className="flex-1">{label}</span>
+                    {showBadge && (
+                      <span style={{
+                        background: "#ef4444",
+                        color: "#fff",
+                        borderRadius: 999,
+                        minWidth: 18,
+                        height: 18,
+                        display: "inline-flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        fontSize: 10,
+                        fontWeight: 700,
+                        padding: "0 5px",
+                      }}>
+                        {pendingCount > 99 ? "99+" : pendingCount}
+                      </span>
+                    )}
                   </span>
                 </Link>
               );

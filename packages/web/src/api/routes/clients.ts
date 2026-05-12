@@ -4,6 +4,7 @@ import * as schema from "../database/schema";
 import { eq, and, desc } from "drizzle-orm";
 import { requireAuth } from "../middleware/auth";
 import { nanoid } from "../lib/id";
+import { sendPortalAccessEmail } from "../lib/email";
 
 async function getTenantId(userId: string) {
   const p = await db.select().from(schema.userProfiles).where(eq(schema.userProfiles.userId, userId)).get();
@@ -87,5 +88,18 @@ export const clients = new Hono()
       label: body.label ?? "Portale cliente",
     }).returning();
     const portalUrl = `${process.env.WEBSITE_URL}portale/${token}`;
+
+    // Fetch client and tenant for email
+    const client = await db.select().from(schema.clients).where(eq(schema.clients.id, c.req.param("id"))).get();
+    const tenant = await db.select().from(schema.tenants).where(eq(schema.tenants.id, tenantId)).get();
+    if (client?.email && tenant) {
+      sendPortalAccessEmail({
+        clientEmail: client.email,
+        clientName: client.name,
+        tenantName: tenant.name,
+        portalUrl,
+      }).catch(console.error);
+    }
+
     return c.json({ token: ct, portalUrl }, 201);
   });

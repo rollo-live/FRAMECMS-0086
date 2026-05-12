@@ -3,6 +3,7 @@ import { cors } from "hono/cors";
 import { auth } from "./auth";
 import { authMiddleware } from "./middleware/auth";
 import { tenants } from "./routes/tenants";
+import { bookings } from "./routes/bookings";
 import { clients } from "./routes/clients";
 import { quotes } from "./routes/quotes";
 import { contracts } from "./routes/contracts";
@@ -29,7 +30,8 @@ const app = new Hono()
   .route("/tasks", tasks)
   .route("/team", team)
   .route("/portal", portal)
-  .route("/client-portal", portal);
+  .route("/client-portal", portal)
+  .route("/bookings", bookings);
 
 export type AppType = typeof app;
 export default app;

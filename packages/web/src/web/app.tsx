@@ -17,6 +17,8 @@ const GalleryDetail = lazy(() => import("./pages/gallery-detail"));
 const VideoPage = lazy(() => import("./pages/video"));
 const VideoDetail = lazy(() => import("./pages/video-detail"));
 const Impostazioni = lazy(() => import("./pages/impostazioni"));
+const Prenotazioni = lazy(() => import("./pages/prenotazioni"));
+const Booking = lazy(() => import("./pages/booking"));
 
 // Public pages
 const AcceptInvite = lazy(() => import("./pages/accept-invite"));
@@ -78,6 +80,7 @@ function App() {
         <Route path="/portale/gallery/:token" element={<PortaleGallery />} />
         <Route path="/portale/video/:token" element={<PortaleVideo />} />
         <Route path="/portale/:token" element={<Portale />} />
+        <Route path="/booking/:tenantSlug" element={<Booking />} />
 
         {/* Onboarding (requires auth but no sidebar) */}
         <Route
@@ -196,6 +199,16 @@ function App() {
             <AuthGuard>
               <ProtectedLayout>
                 <Impostazioni />
+              </ProtectedLayout>
+            </AuthGuard>
+          }
+        />
+        <Route
+          path="/prenotazioni"
+          element={
+            <AuthGuard>
+              <ProtectedLayout>
+                <Prenotazioni />
               </ProtectedLayout>
             </AuthGuard>
           }

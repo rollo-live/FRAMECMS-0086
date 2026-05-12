@@ -59,6 +59,8 @@ export const quotes = sqliteTable("quotes", {
   taxRate: real("tax_rate").notNull().default(22),
   total: real("total").notNull().default(0),
   validUntil: integer("valid_until", { mode: "timestamp" }),
+  introText: text("intro_text"),
+  closingText: text("closing_text"),
   notes: text("notes"),
   status: text("status").notNull().default("draft"), // draft | sent | accepted | rejected
   createdAt: integer("created_at", { mode: "timestamp" }).$defaultFn(() => new Date()),
@@ -206,4 +208,42 @@ export const videoComments = sqliteTable("video_comments", {
   text: text("text").notNull(),
   resolved: integer("resolved", { mode: "boolean" }).notNull().default(false),
   createdAt: integer("created_at", { mode: "timestamp" }).$defaultFn(() => new Date()),
+});
+
+// ─── APPOINTMENTS (prenotazioni) ─────────────────────────────────────────────
+export const appointments = sqliteTable("appointments", {
+  id: text("id").primaryKey(),
+  tenantId: text("tenant_id").notNull().references(() => tenants.id),
+  // Client info (non-authed form submission)
+  clientName: text("client_name").notNull(),
+  clientEmail: text("client_email").notNull(),
+  clientPhone: text("client_phone"),
+  // Event details
+  eventType: text("event_type").notNull(), // battesimo | compleanno | matrimonio | shooting_aziendale | conferenza | altro
+  eventTypeCustom: text("event_type_custom"), // if eventType === "altro"
+  services: text("services").notNull().default("[]"), // JSON array: ["foto","video","stampe_live"]
+  eventDate: integer("event_date", { mode: "timestamp" }).notNull(),
+  eventLocation: text("event_location"),
+  notes: text("notes"),
+  // Status
+  status: text("status").notNull().default("pending"), // pending | approved | rejected
+  // Unique token for public booking link
+  bookingToken: text("booking_token").notNull().unique(),
+  // Google Calendar event (set after approval)
+  googleCalendarEventId: text("google_calendar_event_id"),
+  // Timestamps
+  createdAt: integer("created_at", { mode: "timestamp" }).$defaultFn(() => new Date()),
+  updatedAt: integer("updated_at", { mode: "timestamp" }).$defaultFn(() => new Date()),
+});
+
+// ─── GOOGLE CALENDAR TOKENS ──────────────────────────────────────────────────
+export const googleCalendarTokens = sqliteTable("google_calendar_tokens", {
+  id: text("id").primaryKey(),
+  tenantId: text("tenant_id").notNull().references(() => tenants.id).unique(),
+  accessToken: text("access_token").notNull(),
+  refreshToken: text("refresh_token").notNull(),
+  expiresAt: integer("expires_at", { mode: "timestamp" }).notNull(),
+  calendarId: text("calendar_id").notNull().default("primary"),
+  createdAt: integer("created_at", { mode: "timestamp" }).$defaultFn(() => new Date()),
+  updatedAt: integer("updated_at", { mode: "timestamp" }).$defaultFn(() => new Date()),
 });
