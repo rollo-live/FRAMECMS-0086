@@ -363,23 +363,43 @@ export const contabilita = new Hono()
 
       const quotaCondivisa = usciteCondivise / 2;
       const saldoA = pagatoASuCondivise - quotaCondivisa;
-      let compensazione: { debitore: string; creditore: string; importo: number; descrizione: string } =
-        { debitore: "in_pari", creditore: "in_pari", importo: 0, descrizione: "I soci sono in pari." };
 
-      if (Math.abs(saldoA) > 0.01) {
-        const socioAName = settings?.socioAName ?? "Alessio";
-        const socioBName = settings?.socioBName ?? "Gianluca";
-        if (saldoA > 0) {
+      // Carica tutti i pareggi cumulativi (non filtrati per mese)
+      const pareggiRows = await db.select().from(schema.pareggi)
+        .where(eq(schema.pareggi.tenantId, tenantId));
+
+      // Calcola quanto è già stato saldato: positivo = A ha ricevuto, negativo = B ha ricevuto
+      let pareggatoAFavore = 0; // importo già saldato a favore di A
+      for (const p of pareggiRows) {
+        if (p.creditore === "socio_a") pareggatoAFavore += p.importo;
+        else if (p.creditore === "socio_b") pareggatoAFavore -= p.importo;
+      }
+
+      // Sbilancio residuo dopo pareggi
+      const saldoAResiduo = saldoA - pareggatoAFavore;
+
+      const socioAName = settings?.socioAName ?? "Alessio";
+      const socioBName = settings?.socioBName ?? "Gianluca";
+
+      let compensazione: { debitore: string; creditore: string; importo: number; importoLordo: number; pareggiato: number; descrizione: string } =
+        { debitore: "in_pari", creditore: "in_pari", importo: 0, importoLordo: Math.abs(saldoA), pareggiato: Math.abs(pareggatoAFavore), descrizione: "I soci sono in pari." };
+
+      if (Math.abs(saldoAResiduo) > 0.01) {
+        if (saldoAResiduo > 0) {
           compensazione = {
             debitore: "socio_b", creditore: "socio_a",
-            importo: Math.abs(saldoA),
-            descrizione: `${socioBName} deve a ${socioAName} €${Math.abs(saldoA).toFixed(2)} per spese condivise anticipate`
+            importo: Math.abs(saldoAResiduo),
+            importoLordo: Math.abs(saldoA),
+            pareggiato: Math.abs(pareggatoAFavore),
+            descrizione: `${socioBName} deve ancora a ${socioAName} €${Math.abs(saldoAResiduo).toFixed(2)}`
           };
         } else {
           compensazione = {
             debitore: "socio_a", creditore: "socio_b",
-            importo: Math.abs(saldoA),
-            descrizione: `${socioAName} deve a ${socioBName} €${Math.abs(saldoA).toFixed(2)} per spese condivise anticipate`
+            importo: Math.abs(saldoAResiduo),
+            importoLordo: Math.abs(saldoA),
+            pareggiato: Math.abs(pareggatoAFavore),
+            descrizione: `${socioAName} deve ancora a ${socioBName} €${Math.abs(saldoAResiduo).toFixed(2)}`
           };
         }
       }
@@ -432,6 +452,66 @@ export const contabilita = new Hono()
       return c.json(trend, 200);
     } catch (e) {
       console.error("[contabilita/trend GET]", e);
+      return c.json({ error: String(e) }, 500);
+    }
+  })
+
+  // ─── PAREGGI ───────────────────────────────────────────────────────────────
+
+  .get("/pareggi", requireAuth, async (c) => {
+    try {
+      const user = c.get("user")!;
+      const tenantId = await getTenantId(user.id, { name: user.name, email: user.email });
+      const rows = await db
+        .select()
+        .from(schema.pareggi)
+        .where(eq(schema.pareggi.tenantId, tenantId))
+        .orderBy(desc(schema.pareggi.data));
+      return c.json(rows, 200);
+    } catch (e) {
+      console.error("[contabilita/pareggi GET]", e);
+      return c.json({ error: String(e) }, 500);
+    }
+  })
+
+  .post("/pareggi", requireAuth, async (c) => {
+    try {
+      const user = c.get("user")!;
+      const tenantId = await getTenantId(user.id, { name: user.name, email: user.email });
+      const body = await c.req.json();
+      if (!body.tipo || !body.importo || !body.debitore || !body.creditore) {
+        return c.json({ error: "Campi obbligatori mancanti" }, 400);
+      }
+      const id = nanoid();
+      await db.insert(schema.pareggi).values({
+        id,
+        tenantId,
+        tipo: body.tipo,
+        importo: Number(body.importo),
+        debitore: body.debitore,
+        creditore: body.creditore,
+        entrataId: body.entrataId ?? null,
+        note: body.note ?? null,
+        data: body.data ? new Date(body.data) : new Date(),
+      });
+      const row = await db.select().from(schema.pareggi).where(eq(schema.pareggi.id, id)).get();
+      return c.json(row, 201);
+    } catch (e) {
+      console.error("[contabilita/pareggi POST]", e);
+      return c.json({ error: String(e) }, 500);
+    }
+  })
+
+  .delete("/pareggi/:id", requireAuth, async (c) => {
+    try {
+      const user = c.get("user")!;
+      const tenantId = await getTenantId(user.id, { name: user.name, email: user.email });
+      const { id } = c.req.param();
+      await db.delete(schema.pareggi)
+        .where(and(eq(schema.pareggi.id, id), eq(schema.pareggi.tenantId, tenantId)));
+      return c.json({ ok: true }, 200);
+    } catch (e) {
+      console.error("[contabilita/pareggi DELETE]", e);
       return c.json({ error: String(e) }, 500);
     }
   });

@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from "react";
 import { DashboardLayout } from "../components/layout/dashboard-layout";
 import {
   TrendingUp, TrendingDown, Wallet, PiggyBank, Scale, Plus, Pencil, Trash2,
-  ChevronLeft, ChevronRight, X, Check, Settings, AlertCircle,
+  ChevronLeft, ChevronRight, X, Check, Settings, AlertCircle, Handshake,
 } from "lucide-react";
 import { api } from "../lib/api";
 
@@ -44,7 +44,7 @@ interface Riepilogo {
   netto: { socioA: number; socioB: number; studio: number };
   accantonamento: { totale: number; socioA: number; socioB: number };
   saldo: { socioA: number; socioB: number };
-  compensazione: { debitore: string; creditore: string; importo: number; descrizione: string };
+  compensazione: { debitore: string; creditore: string; importo: number; importoLordo: number; pareggiato: number; descrizione: string };
 }
 
 interface TrendItem {
@@ -53,6 +53,17 @@ interface TrendItem {
   uscite: number;
   accantonamento: number;
   netto: number;
+}
+
+interface Pareggio {
+  id: string;
+  tipo: "pagamento" | "sconto_entrata";
+  importo: number;
+  debitore: "socio_a" | "socio_b";
+  creditore: "socio_a" | "socio_b";
+  entrataId?: string | null;
+  note?: string | null;
+  data: string;
 }
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -501,25 +512,254 @@ function SettingsModal({ settings, onSave, onClose }: {
 
 // ─── Compensazione Banner ─────────────────────────────────────────────────────
 
-function CompensazioneBanner({ comp, settings }: { comp: Riepilogo["compensazione"]; settings: ContabilitaSettings }) {
+function CompensazioneBanner({
+  comp, settings, onPareggia,
+}: {
+  comp: Riepilogo["compensazione"];
+  settings: ContabilitaSettings;
+  onPareggia: () => void;
+}) {
   if (comp.debitore === "in_pari") {
     return (
       <div className="flex items-center gap-3 bg-[#0d1f0d] border border-[rgba(76,175,80,0.3)] rounded-2xl p-4">
         <div className="w-9 h-9 rounded-xl bg-[#4CAF50]/20 flex items-center justify-center flex-shrink-0"><Check size={18} className="text-[#4CAF50]" /></div>
-        <div><div className="text-sm font-semibold text-[#4CAF50]">Soci in pari</div><div className="text-xs text-[#555]">Nessuna compensazione necessaria per le spese condivise.</div></div>
+        <div className="flex-1">
+          <div className="text-sm font-semibold text-[#4CAF50]">Soci in pari</div>
+          <div className="text-xs text-[#555]">Nessuna compensazione necessaria.</div>
+        </div>
+        {comp.pareggiato > 0 && (
+          <div className="text-xs text-[#4CAF50] opacity-70">Pareggiato {fmt(comp.pareggiato)}</div>
+        )}
       </div>
     );
   }
   const debitoreNome = comp.debitore === "socio_a" ? settings.socioAName : settings.socioBName;
   const creditoreNome = comp.creditore === "socio_a" ? settings.socioAName : settings.socioBName;
+  const hasParziale = comp.pareggiato > 0;
   return (
-    <div className="flex items-center gap-3 bg-[#1a0d00] border border-[rgba(245,166,35,0.3)] rounded-2xl p-4">
-      <div className="w-9 h-9 rounded-xl bg-[#F5A623]/20 flex items-center justify-center flex-shrink-0"><Scale size={18} className="text-[#F5A623]" /></div>
-      <div className="flex-1 min-w-0">
-        <div className="text-sm font-semibold text-[#F5A623]">Compensazione spese condivise</div>
-        <div className="text-xs text-[#888] mt-0.5"><span className="text-[#f5f5f5]">{debitoreNome}</span> deve a <span className="text-[#f5f5f5]">{creditoreNome}</span></div>
+    <div className="bg-[#1a0d00] border border-[rgba(245,166,35,0.3)] rounded-2xl p-4 space-y-3">
+      <div className="flex items-center gap-3">
+        <div className="w-9 h-9 rounded-xl bg-[#F5A623]/20 flex items-center justify-center flex-shrink-0"><Scale size={18} className="text-[#F5A623]" /></div>
+        <div className="flex-1 min-w-0">
+          <div className="text-sm font-semibold text-[#F5A623]">Sbilancio tra soci</div>
+          <div className="text-xs text-[#888] mt-0.5">
+            <span className="text-[#f5f5f5]">{debitoreNome}</span> deve a <span className="text-[#f5f5f5]">{creditoreNome}</span>
+          </div>
+        </div>
+        <div className="text-right flex-shrink-0">
+          <div className="text-xl font-bold text-[#F5A623]">{fmt(comp.importo)}</div>
+          {hasParziale && <div className="text-xs text-[#666]">lordo {fmt(comp.importoLordo)} · già saldato {fmt(comp.pareggiato)}</div>}
+        </div>
       </div>
-      <div className="text-xl font-bold text-[#F5A623] flex-shrink-0">{fmt(comp.importo)}</div>
+      <button
+        onClick={onPareggia}
+        className="w-full flex items-center justify-center gap-2 py-2 rounded-xl bg-[#F5A623]/15 hover:bg-[#F5A623]/25 text-[#F5A623] text-sm font-medium transition-colors border border-[rgba(245,166,35,0.2)]"
+      >
+        <Handshake size={15} />
+        Registra pareggio
+      </button>
+    </div>
+  );
+}
+
+// ─── Form Pareggio ────────────────────────────────────────────────────────────
+
+function FormPareggio({
+  settings,
+  comp,
+  entrate,
+  onSave,
+  onClose,
+}: {
+  settings: ContabilitaSettings;
+  comp: Riepilogo["compensazione"];
+  entrate: Entrata[];
+  onSave: (data: Omit<Pareggio, "id" | "data"> & { data?: string }) => Promise<string | null>;
+  onClose: () => void;
+}) {
+  const suggeritaDebitore = comp.debitore !== "in_pari" ? comp.debitore as "socio_a" | "socio_b" : "socio_a";
+  const suggeritaCreditore = comp.creditore !== "in_pari" ? comp.creditore as "socio_a" | "socio_b" : "socio_b";
+
+  const [form, setForm] = useState({
+    tipo: "pagamento" as "pagamento" | "sconto_entrata",
+    importo: comp.importo > 0 ? String(comp.importo.toFixed(2)) : "",
+    debitore: suggeritaDebitore,
+    creditore: suggeritaCreditore,
+    entrataId: "",
+    note: "",
+    data: new Date().toISOString().slice(0, 10),
+  });
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const set = (k: string, v: string) => setForm(f => ({ ...f, [k]: v }));
+
+  const submit = async () => {
+    if (!form.importo || Number(form.importo) <= 0) { setError("Importo non valido"); return; }
+    if (form.debitore === form.creditore) { setError("Debitore e creditore devono essere diversi"); return; }
+    setSaving(true); setError(null);
+    const err = await onSave({
+      tipo: form.tipo,
+      importo: Number(form.importo),
+      debitore: form.debitore as "socio_a" | "socio_b",
+      creditore: form.creditore as "socio_a" | "socio_b",
+      entrataId: form.tipo === "sconto_entrata" && form.entrataId ? form.entrataId : null,
+      note: form.note || null,
+      data: form.data,
+    });
+    setSaving(false);
+    if (err) setError(err); else onClose();
+  };
+
+  const nomeA = settings.socioAName.split(" ")[0];
+  const nomeB = settings.socioBName.split(" ")[0];
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+      <div className="bg-[#111] border border-[rgba(255,255,255,0.08)] rounded-2xl w-full max-w-md shadow-2xl">
+        <div className="flex items-center justify-between p-5 border-b border-[rgba(255,255,255,0.06)]">
+          <div className="flex items-center gap-2">
+            <Handshake size={18} className="text-[#F5A623]" />
+            <h2 className="text-base font-semibold text-[#f5f5f5]">Registra pareggio</h2>
+          </div>
+          <button onClick={onClose} className="p-1.5 rounded-lg text-[#555] hover:text-[#f5f5f5] hover:bg-[#1a1a1a]"><X size={16} /></button>
+        </div>
+        <div className="p-5 space-y-4">
+          {error && <div className="flex items-center gap-2 p-3 rounded-xl bg-[#ef4444]/10 border border-[rgba(239,68,68,0.2)] text-[#ef4444] text-sm"><AlertCircle size={14} />{error}</div>}
+
+          {/* Tipo */}
+          <div>
+            <label className="text-xs text-[#666] mb-1.5 block">Tipo pareggio</label>
+            <div className="grid grid-cols-2 gap-2">
+              {[
+                { val: "pagamento", label: "💸 Pagamento diretto" },
+                { val: "sconto_entrata", label: "🎯 Sconto su entrata" },
+              ].map(({ val, label }) => (
+                <button key={val} onClick={() => set("tipo", val)}
+                  className={`py-2.5 rounded-xl text-sm font-medium border transition-all ${form.tipo === val ? "bg-[#F5A623]/20 border-[#F5A623]/50 text-[#F5A623]" : "border-[rgba(255,255,255,0.08)] text-[#666] hover:border-[rgba(255,255,255,0.15)]"}`}>
+                  {label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Debitore / creditore */}
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="text-xs text-[#666] mb-1.5 block">Chi paga / cede</label>
+              <select value={form.debitore} onChange={e => set("debitore", e.target.value)}
+                className="w-full bg-[#1a1a1a] border border-[rgba(255,255,255,0.08)] rounded-xl px-3 py-2 text-sm text-[#f5f5f5]">
+                <option value="socio_a">{nomeA}</option>
+                <option value="socio_b">{nomeB}</option>
+              </select>
+            </div>
+            <div>
+              <label className="text-xs text-[#666] mb-1.5 block">Chi riceve</label>
+              <select value={form.creditore} onChange={e => set("creditore", e.target.value)}
+                className="w-full bg-[#1a1a1a] border border-[rgba(255,255,255,0.08)] rounded-xl px-3 py-2 text-sm text-[#f5f5f5]">
+                <option value="socio_a">{nomeA}</option>
+                <option value="socio_b">{nomeB}</option>
+              </select>
+            </div>
+          </div>
+
+          {/* Importo */}
+          <div>
+            <label className="text-xs text-[#666] mb-1.5 block">Importo (€)</label>
+            <input type="number" step="0.01" min="0" value={form.importo} onChange={e => set("importo", e.target.value)}
+              placeholder="0.00"
+              className="w-full bg-[#1a1a1a] border border-[rgba(255,255,255,0.08)] rounded-xl px-3 py-2 text-sm text-[#f5f5f5] placeholder-[#444]" />
+            {comp.importo > 0 && (
+              <div className="mt-1.5 flex gap-2">
+                <button onClick={() => set("importo", comp.importo.toFixed(2))}
+                  className="text-xs text-[#F5A623] hover:underline">Saldo totale {fmt(comp.importo)}</button>
+              </div>
+            )}
+          </div>
+
+          {/* Entrata collegata (solo sconto_entrata) */}
+          {form.tipo === "sconto_entrata" && (
+            <div>
+              <label className="text-xs text-[#666] mb-1.5 block">Entrata collegata (opzionale)</label>
+              <select value={form.entrataId} onChange={e => set("entrataId", e.target.value)}
+                className="w-full bg-[#1a1a1a] border border-[rgba(255,255,255,0.08)] rounded-xl px-3 py-2 text-sm text-[#f5f5f5]">
+                <option value="">— nessuna —</option>
+                {entrate.map(e => (
+                  <option key={e.id} value={e.id}>{e.descrizione} · {fmt(e.importo)}</option>
+                ))}
+              </select>
+            </div>
+          )}
+
+          {/* Data */}
+          <div>
+            <label className="text-xs text-[#666] mb-1.5 block">Data</label>
+            <input type="date" value={form.data} onChange={e => set("data", e.target.value)}
+              className="w-full bg-[#1a1a1a] border border-[rgba(255,255,255,0.08)] rounded-xl px-3 py-2 text-sm text-[#f5f5f5]" />
+          </div>
+
+          {/* Note */}
+          <div>
+            <label className="text-xs text-[#666] mb-1.5 block">Note (opzionale)</label>
+            <input value={form.note} onChange={e => set("note", e.target.value)}
+              placeholder="Es. Bonifico del 15/05..."
+              className="w-full bg-[#1a1a1a] border border-[rgba(255,255,255,0.08)] rounded-xl px-3 py-2 text-sm text-[#f5f5f5] placeholder-[#444]" />
+          </div>
+
+          <button onClick={submit} disabled={saving}
+            className="w-full py-3 rounded-xl bg-[#F5A623] text-black font-semibold text-sm hover:bg-[#e09510] disabled:opacity-50 transition-colors">
+            {saving ? "Salvataggio..." : "Conferma pareggio"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Storico Pareggi ─────────────────────────────────────────────────────────
+
+function StoricoPareggi({
+  pareggi,
+  settings,
+  onDelete,
+}: {
+  pareggi: Pareggio[];
+  settings: ContabilitaSettings;
+  onDelete: (id: string) => void;
+}) {
+  if (pareggi.length === 0) return null;
+  const nomeA = settings.socioAName.split(" ")[0];
+  const nomeB = settings.socioBName.split(" ")[0];
+  const nomeSocio = (s: string) => s === "socio_a" ? nomeA : nomeB;
+  return (
+    <div className="bg-[#111] border border-[rgba(255,255,255,0.06)] rounded-2xl overflow-hidden">
+      <div className="px-4 py-3 border-b border-[rgba(255,255,255,0.06)] flex items-center gap-2">
+        <Handshake size={15} className="text-[#F5A623]" />
+        <span className="text-sm font-semibold text-[#f5f5f5]">Storico pareggi</span>
+        <span className="ml-auto text-xs text-[#555]">{pareggi.length} registraz.</span>
+      </div>
+      <div className="divide-y divide-[rgba(255,255,255,0.04)]">
+        {pareggi.map(p => (
+          <div key={p.id} className="flex items-center gap-3 px-4 py-3">
+            <div className="w-8 h-8 rounded-lg bg-[#F5A623]/10 flex items-center justify-center flex-shrink-0 text-base">
+              {p.tipo === "pagamento" ? "💸" : "🎯"}
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="text-sm text-[#f5f5f5] font-medium">
+                {nomeSocio(p.debitore)} → {nomeSocio(p.creditore)}
+              </div>
+              <div className="text-xs text-[#555] mt-0.5 flex gap-2">
+                <span>{p.tipo === "pagamento" ? "Pagamento diretto" : "Sconto su entrata"}</span>
+                <span>·</span>
+                <span>{new Date(p.data).toLocaleDateString("it-IT")}</span>
+                {p.note && <><span>·</span><span className="truncate max-w-[120px]">{p.note}</span></>}
+              </div>
+            </div>
+            <div className="text-sm font-bold text-[#4CAF50] flex-shrink-0 mr-2">{fmt(p.importo)}</div>
+            <button onClick={() => onDelete(p.id)} className="p-1.5 rounded-lg text-[#333] hover:text-[#ef4444] hover:bg-[#ef4444]/10 transition-colors"><Trash2 size={13} /></button>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
@@ -541,28 +781,32 @@ export default function Contabilita() {
   const [trend, setTrend] = useState<TrendItem[]>([]);
   const [entrate, setEntrate] = useState<Entrata[]>([]);
   const [uscite, setUscite] = useState<Uscita[]>([]);
+  const [pareggi, setPareggi] = useState<Pareggio[]>([]);
   const [loading, setLoading] = useState(true);
   const [showSettings, setShowSettings] = useState(false);
   const [addEntrata, setAddEntrata] = useState(false);
   const [addUscita, setAddUscita] = useState(false);
   const [editEntrata, setEditEntrata] = useState<Entrata | null>(null);
   const [editUscita, setEditUscita] = useState<Uscita | null>(null);
+  const [showPareggio, setShowPareggio] = useState(false);
 
   const fetchAll = useCallback(async () => {
     setLoading(true);
     try {
-      const [sRes, rRes, tRes, eRes, uRes] = await Promise.all([
+      const [sRes, rRes, tRes, eRes, uRes, pRes] = await Promise.all([
         api.get("/api/contabilita/settings"),
         api.get(`/api/contabilita/riepilogo?month=${month}&year=${year}`),
         api.get("/api/contabilita/trend"),
         api.get(`/api/contabilita/entrate?month=${month}&year=${year}`),
         api.get(`/api/contabilita/uscite?month=${month}&year=${year}`),
+        api.get("/api/contabilita/pareggi"),
       ]);
       if (sRes.ok) { const d = await sRes.json(); if (d && !d.error) setSettings(d); }
       if (rRes.ok) { const d = await rRes.json(); if (d && !d.error) setRiepilogo(d); }
       if (tRes.ok) { const d = await tRes.json(); if (Array.isArray(d)) setTrend(d); }
       if (eRes.ok) { const d = await eRes.json(); if (Array.isArray(d)) setEntrate(d); }
       if (uRes.ok) { const d = await uRes.json(); if (Array.isArray(d)) setUscite(d); }
+      if (pRes.ok) { const d = await pRes.json(); if (Array.isArray(d)) setPareggi(d); }
     } catch (e) { console.error("fetchAll", e); }
     setLoading(false);
   }, [month, year]);
@@ -619,6 +863,22 @@ export default function Contabilita() {
     fetchAll();
   };
 
+  const savePareggio = async (data: Omit<Pareggio, "id" | "data"> & { data?: string }): Promise<string | null> => {
+    try {
+      const res = await api.post("/api/contabilita/pareggi", data);
+      const body = await res.json();
+      if (!res.ok) return body?.error ?? `Errore ${res.status}`;
+      setShowPareggio(false); fetchAll();
+      return null;
+    } catch (e) { return String(e); }
+  };
+
+  const deletePareggio = async (id: string) => {
+    if (!confirm("Eliminare questo pareggio?")) return;
+    await api.delete(`/api/contabilita/pareggi/${id}`);
+    fetchAll();
+  };
+
   const benefLabel = (b: string) => b === "socio_a" ? settings.socioAName.split(" ")[0] : b === "socio_b" ? settings.socioBName.split(" ")[0] : "50/50";
   const pagatoLabel = (p: string) => p === "socio_a" ? settings.socioAName.split(" ")[0] : p === "socio_b" ? settings.socioBName.split(" ")[0] : "Studio";
   const saldoColor = (n: number) => n >= 0 ? "text-[#4CAF50]" : "text-[#ef4444]";
@@ -660,7 +920,7 @@ export default function Contabilita() {
         {/* ── DASHBOARD ── */}
         {!loading && tab === "dashboard" && riepilogo && (
           <div className="space-y-5">
-            <CompensazioneBanner comp={riepilogo.compensazione} settings={settings} />
+            <CompensazioneBanner comp={riepilogo.compensazione} settings={settings} onPareggia={() => setShowPareggio(true)} />
 
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
               <StatCard label="Entrate Totali" value={fmt(riepilogo.entrate.totale)} color="bg-[#4CAF50]/20 text-[#4CAF50]" icon={TrendingUp} />
@@ -741,6 +1001,9 @@ export default function Contabilita() {
                 <div><div className="text-xs text-[#555] mb-1">Quota per socio</div><div className="text-lg font-bold text-[#f5f5f5]">{fmt(riepilogo.uscite.condivise / 2)}</div></div>
               </div>
             </div>
+
+            {/* Storico pareggi */}
+            <StoricoPareggi pareggi={pareggi} settings={settings} onDelete={deletePareggio} />
           </div>
         )}
 
@@ -838,6 +1101,16 @@ export default function Contabilita() {
         <Modal title={editUscita ? "Modifica uscita" : "Nuova uscita"} onClose={() => { setAddUscita(false); setEditUscita(null); }}>
           <UscitaForm initial={editUscita ?? undefined} settings={settings} onSave={saveUscita} onClose={() => { setAddUscita(false); setEditUscita(null); }} />
         </Modal>
+      )}
+
+      {showPareggio && riepilogo && (
+        <FormPareggio
+          settings={settings}
+          comp={riepilogo.compensazione}
+          entrate={entrate}
+          onSave={savePareggio}
+          onClose={() => setShowPareggio(false)}
+        />
       )}
     </DashboardLayout>
   );

@@ -276,6 +276,19 @@ export const uscite = sqliteTable("uscite", {
   updatedAt: integer("updated_at", { mode: "timestamp" }).$defaultFn(() => new Date()),
 });
 
+export const pareggi = sqliteTable("pareggi", {
+  id: text("id").primaryKey(),
+  tenantId: text("tenant_id").notNull().references(() => tenants.id),
+  tipo: text("tipo").notNull(), // "pagamento" | "sconto_entrata"
+  importo: real("importo").notNull(),
+  debitore: text("debitore").notNull(), // "socio_a" | "socio_b"
+  creditore: text("creditore").notNull(), // "socio_a" | "socio_b"
+  entrataId: text("entrata_id").references(() => entrate.id), // solo per sconto_entrata
+  note: text("note"),
+  data: integer("data", { mode: "timestamp" }).$defaultFn(() => new Date()),
+  createdAt: integer("created_at", { mode: "timestamp" }).$defaultFn(() => new Date()),
+});
+
 // ─── GOOGLE CALENDAR TOKENS ──────────────────────────────────────────────────
 export const googleCalendarTokens = sqliteTable("google_calendar_tokens", {
   id: text("id").primaryKey(),
