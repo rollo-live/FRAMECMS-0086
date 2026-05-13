@@ -22,12 +22,28 @@ export async function getPresignedUploadUrl(key: string, contentType: string, ex
   );
 }
 
+// Cache presigned GET url — riduciamo firma ripetuta (durano 1h, cachaimo 50min)
+const presignedCache = new Map<string, { url: string; expiresAt: number }>();
+
 export async function getPresignedGetUrl(key: string, expiresIn = 3600) {
-  return getSignedUrl(
+  const now = Date.now();
+  const cached = presignedCache.get(key);
+  if (cached && cached.expiresAt > now) return cached.url;
+
+  const url = await getSignedUrl(
     s3,
     new GetObjectCommand({ Bucket: process.env.S3_BUCKET, Key: key }),
     { expiresIn }
   );
+  // Caccha per expiresIn - 10min di margine
+  presignedCache.set(key, { url, expiresAt: now + (expiresIn - 600) * 1000 });
+  // Pulizia cache ogni 500 entry
+  if (presignedCache.size > 500) {
+    for (const [k, v] of presignedCache) {
+      if (v.expiresAt < now) presignedCache.delete(k);
+    }
+  }
+  return url;
 }
 
 export async function deleteObject(key: string) {

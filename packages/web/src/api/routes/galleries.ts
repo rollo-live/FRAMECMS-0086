@@ -1,15 +1,21 @@
 import { Hono } from "hono";
 import { db } from "../database";
 import * as schema from "../database/schema";
-import { eq, and, desc, asc, count, inArray } from "drizzle-orm";
+import { eq, and, desc, asc, count, inArray, sql } from "drizzle-orm";
 import { requireAuth } from "../middleware/auth";
 import { nanoid } from "../lib/id";
 import { getPresignedUploadUrl, getPresignedGetUrl, deleteObject } from "../lib/s3";
 import { detectFaces, cosineSimilarity, averageEmbeddings, FACE_MATCH_THRESHOLD } from "../lib/face-detection";
 
+// Cache tenantId per userId (valore stabile, TTL 5min)
+const tenantIdCache = new Map<string, { id: string; exp: number }>();
 async function getTenantId(userId: string) {
+  const cached = tenantIdCache.get(userId);
+  if (cached && cached.exp > Date.now()) return cached.id;
   const p = await db.select().from(schema.userProfiles).where(eq(schema.userProfiles.userId, userId)).get();
-  return p?.tenantId ?? null;
+  const id = p?.tenantId ?? null;
+  if (id) tenantIdCache.set(userId, { id, exp: Date.now() + 5 * 60 * 1000 });
+  return id;
 }
 
 async function getTenantInfo(tenantId: string) {
@@ -252,17 +258,31 @@ export const galleries = new Hono()
       .where(eq(schema.galleries.tenantId, tenantId))
       .orderBy(desc(schema.galleries.createdAt));
 
-    // Attach photoCount + coverUrl for each gallery
+    if (all.length === 0) return c.json({ galleries: [] }, 200);
+
+    const galleryIds = all.map(g => g.id);
+
+    // Batch: count + first photo per gallery in 2 queries totali invece di N*2
+    const [counts, firstPhotos] = await Promise.all([
+      db.select({ galleryId: schema.photos.galleryId, value: count() })
+        .from(schema.photos)
+        .where(inArray(schema.photos.galleryId, galleryIds))
+        .groupBy(schema.photos.galleryId),
+      db.select().from(schema.photos)
+        .where(inArray(schema.photos.galleryId, galleryIds))
+        .orderBy(asc(schema.photos.order)),
+    ]);
+
+    const countMap = new Map(counts.map(c => [c.galleryId, c.value]));
+    // Prima foto per gallery (già ordinate per order)
+    const firstPhotoMap = new Map<string, typeof schema.photos.$inferSelect>();
+    for (const p of firstPhotos) {
+      if (!firstPhotoMap.has(p.galleryId)) firstPhotoMap.set(p.galleryId, p);
+    }
+
     const withMeta = await Promise.all(all.map(async (g) => {
-      const firstPhoto = await db.select().from(schema.photos)
-        .where(eq(schema.photos.galleryId, g.id))
-        .orderBy(asc(schema.photos.order))
-        .limit(1)
-        .get();
-      const countResult = await db.select({ value: count() }).from(schema.photos)
-        .where(eq(schema.photos.galleryId, g.id))
-        .get();
-      const photoCount = countResult?.value ?? 0;
+      const firstPhoto = firstPhotoMap.get(g.id);
+      const photoCount = countMap.get(g.id) ?? 0;
       let coverUrl: string | null = null;
       if (firstPhoto) {
         try { coverUrl = await getPresignedGetUrl(firstPhoto.r2Key, 3600); } catch { /* ignore */ }
@@ -599,24 +619,42 @@ export const galleries = new Hono()
       .where(eq(schema.facePersone.tenantId, tenantId))
       .orderBy(asc(schema.facePersone.createdAt));
 
-    // For each persona: count photos and get cover URL
+    if (persone.length === 0) return c.json({ persone: [] }, 200);
+
+    const personaIds = persone.map(p => p.id);
+
+    // Batch: count foto per persona + recupera cover photos in 3 query totali
+    const [fotoCounts, fotoLinks] = await Promise.all([
+      db.select({ personaId: schema.fotoPersone.personaId, value: count() })
+        .from(schema.fotoPersone)
+        .where(inArray(schema.fotoPersone.personaId, personaIds))
+        .groupBy(schema.fotoPersone.personaId),
+      db.select().from(schema.fotoPersone)
+        .where(inArray(schema.fotoPersone.personaId, personaIds)),
+    ]);
+
+    const countMap = new Map(fotoCounts.map(f => [f.personaId, f.value]));
+    // Prima foto per persona
+    const firstFotoMap = new Map<string, string>(); // personaId -> photoId
+    for (const f of fotoLinks) {
+      if (!firstFotoMap.has(f.personaId)) firstFotoMap.set(f.personaId, f.photoId);
+    }
+
+    // Recupera le cover photos in batch
+    const coverPhotoIds = persone.map(p => p.coverPhotoId ?? firstFotoMap.get(p.id)).filter(Boolean) as string[];
+    const coverPhotos = coverPhotoIds.length > 0
+      ? await db.select().from(schema.photos).where(inArray(schema.photos.id, coverPhotoIds))
+      : [];
+    const coverPhotoMap = new Map(coverPhotos.map(p => [p.id, p]));
+
     const result = await Promise.all(persone.map(async (p) => {
-      const fotoLinks = await db.select().from(schema.fotoPersone)
-        .where(eq(schema.fotoPersone.personaId, p.id)).all();
-
-      const photoCount = fotoLinks.length;
+      const photoCount = countMap.get(p.id) ?? 0;
       let coverUrl: string | null = null;
-
-      // Try cover photo first, then first tagged photo
-      const coverPhotoId = p.coverPhotoId ?? fotoLinks[0]?.photoId;
-      if (coverPhotoId) {
-        const coverPhoto = await db.select().from(schema.photos)
-          .where(eq(schema.photos.id, coverPhotoId)).get();
-        if (coverPhoto) {
-          try { coverUrl = await getPresignedGetUrl(coverPhoto.r2Key, 3600); } catch { /* ignore */ }
-        }
+      const coverPhotoId = p.coverPhotoId ?? firstFotoMap.get(p.id);
+      const coverPhoto = coverPhotoId ? coverPhotoMap.get(coverPhotoId) : undefined;
+      if (coverPhoto) {
+        try { coverUrl = await getPresignedGetUrl(coverPhoto.r2Key, 3600); } catch { /* ignore */ }
       }
-
       return {
         id: p.id,
         nome: p.nome,
