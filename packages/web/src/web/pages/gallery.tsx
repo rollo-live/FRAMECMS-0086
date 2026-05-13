@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { api } from "../lib/api";
 import { DashboardLayout } from "../components/layout/dashboard-layout";
-import { Plus, Image as ImageIcon, Link2, Check, ExternalLink, Trash2 } from "lucide-react";
+import { Plus, Image as ImageIcon, Link2, Check, ExternalLink, Trash2, Users } from "lucide-react";
 
 type Gallery = {
   id: string;
@@ -89,12 +89,20 @@ export default function GalleryPage() {
             <h1 className="text-xl sm:text-2xl font-bold text-[#f5f5f5]">Gallery</h1>
             <p className="text-sm text-[#a0a0a0] mt-0.5">Condividi le foto con i tuoi clienti</p>
           </div>
-          <button
-            onClick={() => setShowModal(true)}
-            className="flex items-center gap-1.5 px-3 sm:px-4 py-2 bg-[#F5A623] hover:bg-[#e09615] text-black text-sm font-semibold rounded-xl transition-colors shrink-0"
-          >
-            <Plus size={15} /> <span className="hidden sm:inline">Nuova gallery</span><span className="sm:hidden">Nuova</span>
-          </button>
+          <div className="flex items-center gap-2">
+            <Link
+              to="/gallery/persone"
+              className="flex items-center gap-1.5 px-3 py-2 bg-[#1e1e1e] hover:bg-[#2a2a2a] border border-[#2a2a2a] text-[#e0e0e0] text-sm font-medium rounded-xl transition-colors shrink-0"
+            >
+              <Users size={15} /> <span className="hidden sm:inline">Persone</span>
+            </Link>
+            <button
+              onClick={() => setShowModal(true)}
+              className="flex items-center gap-1.5 px-3 sm:px-4 py-2 bg-[#F5A623] hover:bg-[#e09615] text-black text-sm font-semibold rounded-xl transition-colors shrink-0"
+            >
+              <Plus size={15} /> <span className="hidden sm:inline">Nuova gallery</span><span className="sm:hidden">Nuova</span>
+            </button>
+          </div>
         </div>
 
         {loading ? (

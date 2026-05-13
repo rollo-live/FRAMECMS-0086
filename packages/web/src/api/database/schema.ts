@@ -289,6 +289,27 @@ export const pareggi = sqliteTable("pareggi", {
   createdAt: integer("created_at", { mode: "timestamp" }).$defaultFn(() => new Date()),
 });
 
+// ─── FACE RECOGNITION: PERSONE ───────────────────────────────────────────────
+export const facePersone = sqliteTable("face_persone", {
+  id: text("id").primaryKey(),
+  tenantId: text("tenant_id").notNull().references(() => tenants.id),
+  nome: text("nome").notNull().default("Persona sconosciuta"),
+  embeddingMedio: text("embedding_medio"), // JSON float[]
+  coverPhotoId: text("cover_photo_id"), // foto di copertina
+  visibileASoci: integer("visibile_a_soci", { mode: "boolean" }).notNull().default(false),
+  createdAt: integer("created_at", { mode: "timestamp" }).$defaultFn(() => new Date()),
+});
+
+// foto ↔ persona (molti-a-molti)
+export const fotoPersone = sqliteTable("foto_persone", {
+  id: text("id").primaryKey(),
+  photoId: text("photo_id").notNull().references(() => photos.id),
+  personaId: text("persona_id").notNull().references(() => facePersone.id),
+  embedding: text("embedding"), // JSON float[] — embedding del volto specifico in questa foto
+  faceBox: text("face_box"), // JSON {x,y,width,height} normalizzato
+  createdAt: integer("created_at", { mode: "timestamp" }).$defaultFn(() => new Date()),
+});
+
 // ─── GOOGLE CALENDAR TOKENS ──────────────────────────────────────────────────
 export const googleCalendarTokens = sqliteTable("google_calendar_tokens", {
   id: text("id").primaryKey(),

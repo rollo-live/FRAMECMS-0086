@@ -23,6 +23,8 @@
     "@radix-ui/react-slot": "^1.2.4",
     "@runablehq/website-runtime": "^0.10.0",
     "@tanstack/react-query": "^5.100.6",
+    "@tensorflow/tfjs-node": "^4.22.0",
+    "@vladmandic/human": "^3.3.6",
     "autumn-js": "1.2.0",
     "better-auth": "1.4.22",
     "class-variance-authority": "^0.7.1",

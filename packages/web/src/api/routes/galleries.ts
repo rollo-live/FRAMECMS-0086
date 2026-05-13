@@ -1,10 +1,11 @@
 import { Hono } from "hono";
 import { db } from "../database";
 import * as schema from "../database/schema";
-import { eq, and, desc, asc, count } from "drizzle-orm";
+import { eq, and, desc, asc, count, inArray } from "drizzle-orm";
 import { requireAuth } from "../middleware/auth";
 import { nanoid } from "../lib/id";
 import { getPresignedUploadUrl, getPresignedGetUrl, deleteObject } from "../lib/s3";
+import { detectFaces, cosineSimilarity, averageEmbeddings, FACE_MATCH_THRESHOLD } from "../lib/face-detection";
 
 async function getTenantId(userId: string) {
   const p = await db.select().from(schema.userProfiles).where(eq(schema.userProfiles.userId, userId)).get();
@@ -467,5 +468,283 @@ export const galleries = new Hono()
     return c.json({ request: updated }, 200);
   })
 
+  // ── Face recognition: analyze photos in gallery ───────────────────────────
+  // Called after upload to detect faces and cluster into persone
+  .post("/:id/photos/analyze", requireAuth, async (c) => {
+    const user = c.get("user")!;
+    const tenantId = await getTenantId(user.id);
+    if (!tenantId) return c.json({ error: "Non autorizzato" }, 401);
+
+    const gallery = await db.select().from(schema.galleries)
+      .where(and(eq(schema.galleries.id, c.req.param("id")), eq(schema.galleries.tenantId, tenantId))).get();
+    if (!gallery) return c.json({ error: "Gallery non trovata" }, 404);
+
+    // Get photos that haven't been analyzed yet (no entry in foto_persone)
+    const body = await c.req.json().catch(() => ({})) as { photoIds?: string[] };
+    let photos: typeof schema.photos.$inferSelect[] = [];
+
+    if (body.photoIds && body.photoIds.length > 0) {
+      photos = await db.select().from(schema.photos)
+        .where(and(
+          eq(schema.photos.galleryId, gallery.id),
+          inArray(schema.photos.id, body.photoIds)
+        )).all();
+    } else {
+      photos = await db.select().from(schema.photos)
+        .where(eq(schema.photos.galleryId, gallery.id)).all();
+    }
+
+    // Load existing persone for this tenant
+    let persone = await db.select().from(schema.facePersone)
+      .where(eq(schema.facePersone.tenantId, tenantId)).all();
+
+    let newFaces = 0;
+    let newPersone = 0;
+
+    for (const photo of photos) {
+      try {
+        // Skip photos already analyzed
+        const existing = await db.select().from(schema.fotoPersone)
+          .where(eq(schema.fotoPersone.photoId, photo.id)).all();
+        if (existing.length > 0) continue;
+
+        // Download photo from R2
+        const photoUrl = await getPresignedGetUrl(photo.r2Key, 60);
+        const imgRes = await fetch(photoUrl);
+        if (!imgRes.ok) continue;
+        const buffer = Buffer.from(await imgRes.arrayBuffer());
+
+        // Detect faces
+        const faces = await detectFaces(buffer);
+        newFaces += faces.length;
+
+        for (const face of faces) {
+          // Try to match with existing person
+          let matchedPersona: typeof schema.facePersone.$inferSelect | null = null;
+          let bestSim = 0;
+
+          for (const persona of persone) {
+            if (!persona.embeddingMedio) continue;
+            const mean: number[] = JSON.parse(persona.embeddingMedio);
+            const sim = cosineSimilarity(face.embedding, mean);
+            if (sim > FACE_MATCH_THRESHOLD && sim > bestSim) {
+              bestSim = sim;
+              matchedPersona = persona;
+            }
+          }
+
+          if (matchedPersona) {
+            // Add this face to existing person + update mean embedding
+            await db.insert(schema.fotoPersone).values({
+              id: nanoid(),
+              photoId: photo.id,
+              personaId: matchedPersona.id,
+              embedding: JSON.stringify(face.embedding),
+              faceBox: JSON.stringify(face.box),
+            });
+
+            // Recompute mean embedding
+            const allFotoPersona = await db.select().from(schema.fotoPersone)
+              .where(eq(schema.fotoPersone.personaId, matchedPersona.id)).all();
+            const embeddings = allFotoPersona
+              .filter((fp) => fp.embedding)
+              .map((fp) => JSON.parse(fp.embedding!) as number[]);
+            embeddings.push(face.embedding);
+            const newMean = averageEmbeddings(embeddings);
+
+            await db.update(schema.facePersone)
+              .set({ embeddingMedio: JSON.stringify(newMean) })
+              .where(eq(schema.facePersone.id, matchedPersona.id));
+
+            // Update local cache
+            matchedPersona.embeddingMedio = JSON.stringify(newMean);
+          } else {
+            // Create new person
+            const personaId = nanoid();
+            newPersone++;
+            const [nuovaPersona] = await db.insert(schema.facePersone).values({
+              id: personaId,
+              tenantId,
+              nome: `Persona ${persone.length + 1}`,
+              embeddingMedio: JSON.stringify(face.embedding),
+              coverPhotoId: photo.id,
+            }).returning();
+
+            await db.insert(schema.fotoPersone).values({
+              id: nanoid(),
+              photoId: photo.id,
+              personaId,
+              embedding: JSON.stringify(face.embedding),
+              faceBox: JSON.stringify(face.box),
+            });
+
+            persone.push(nuovaPersona);
+          }
+        }
+      } catch (e) {
+        console.error("[analyze] error on photo", photo.id, e);
+      }
+    }
+
+    return c.json({ analyzed: photos.length, newFaces, newPersone }, 200);
+  })
+
+  // ── Face recognition: list persone ───────────────────────────────────────
+  .get("/persone", requireAuth, async (c) => {
+    const user = c.get("user")!;
+    const tenantId = await getTenantId(user.id);
+    if (!tenantId) return c.json({ persone: [] }, 200);
+
+    const persone = await db.select().from(schema.facePersone)
+      .where(eq(schema.facePersone.tenantId, tenantId))
+      .orderBy(asc(schema.facePersone.createdAt));
+
+    // For each persona: count photos and get cover URL
+    const result = await Promise.all(persone.map(async (p) => {
+      const fotoLinks = await db.select().from(schema.fotoPersone)
+        .where(eq(schema.fotoPersone.personaId, p.id)).all();
+
+      const photoCount = fotoLinks.length;
+      let coverUrl: string | null = null;
+
+      // Try cover photo first, then first tagged photo
+      const coverPhotoId = p.coverPhotoId ?? fotoLinks[0]?.photoId;
+      if (coverPhotoId) {
+        const coverPhoto = await db.select().from(schema.photos)
+          .where(eq(schema.photos.id, coverPhotoId)).get();
+        if (coverPhoto) {
+          try { coverUrl = await getPresignedGetUrl(coverPhoto.r2Key, 3600); } catch { /* ignore */ }
+        }
+      }
+
+      return {
+        id: p.id,
+        nome: p.nome,
+        photoCount,
+        coverUrl,
+        visibileASoci: p.visibileASoci,
+        createdAt: p.createdAt,
+      };
+    }));
+
+    return c.json({ persone: result }, 200);
+  })
+
+  // ── Face recognition: rinomina persona ───────────────────────────────────
+  .put("/persone/:personaId", requireAuth, async (c) => {
+    const user = c.get("user")!;
+    const tenantId = await getTenantId(user.id);
+    if (!tenantId) return c.json({ error: "Non autorizzato" }, 401);
+
+    const body = await c.req.json();
+    const [updated] = await db.update(schema.facePersone)
+      .set({
+        nome: body.nome,
+        visibileASoci: body.visibileASoci ?? undefined,
+      })
+      .where(and(
+        eq(schema.facePersone.id, c.req.param("personaId")),
+        eq(schema.facePersone.tenantId, tenantId)
+      ))
+      .returning();
+
+    return c.json({ persona: updated }, 200);
+  })
+
+  // ── Face recognition: elimina persona ────────────────────────────────────
+  .delete("/persone/:personaId", requireAuth, async (c) => {
+    const user = c.get("user")!;
+    const tenantId = await getTenantId(user.id);
+    if (!tenantId) return c.json({ error: "Non autorizzato" }, 401);
+
+    const persona = await db.select().from(schema.facePersone)
+      .where(and(
+        eq(schema.facePersone.id, c.req.param("personaId")),
+        eq(schema.facePersone.tenantId, tenantId)
+      )).get();
+    if (!persona) return c.json({ error: "Non trovata" }, 404);
+
+    await db.delete(schema.fotoPersone).where(eq(schema.fotoPersone.personaId, persona.id));
+    await db.delete(schema.facePersone).where(eq(schema.facePersone.id, persona.id));
+
+    return c.json({ ok: true }, 200);
+  })
+
+  // ── Face recognition: foto di una persona ────────────────────────────────
+  .get("/persone/:personaId/foto", requireAuth, async (c) => {
+    const user = c.get("user")!;
+    const tenantId = await getTenantId(user.id);
+    if (!tenantId) return c.json({ error: "Non autorizzato" }, 401);
+
+    const persona = await db.select().from(schema.facePersone)
+      .where(and(
+        eq(schema.facePersone.id, c.req.param("personaId")),
+        eq(schema.facePersone.tenantId, tenantId)
+      )).get();
+    if (!persona) return c.json({ error: "Non trovata" }, 404);
+
+    const fotoLinks = await db.select().from(schema.fotoPersone)
+      .where(eq(schema.fotoPersone.personaId, persona.id)).all();
+
+    const photoIds = fotoLinks.map((fl) => fl.photoId);
+    if (photoIds.length === 0) return c.json({ persona, foto: [] }, 200);
+
+    const photos = await db.select().from(schema.photos)
+      .where(inArray(schema.photos.id, photoIds)).all();
+
+    const fotosWithUrls = await Promise.all(photos.map(async (p) => {
+      const link = fotoLinks.find((fl) => fl.photoId === p.id);
+      try {
+        return {
+          ...p,
+          url: await getPresignedGetUrl(p.r2Key, 3600),
+          thumbnailUrl: p.thumbnailKey ? await getPresignedGetUrl(p.thumbnailKey, 3600) : null,
+          faceBox: link?.faceBox ? JSON.parse(link.faceBox) : null,
+          likeCount: JSON.parse(p.likes || "[]").length,
+        };
+      } catch {
+        return { ...p, url: "", thumbnailUrl: null, faceBox: null, likeCount: 0 };
+      }
+    }));
+
+    return c.json({ persona: { id: persona.id, nome: persona.nome }, foto: fotosWithUrls }, 200);
+  })
+
+  // ── Face recognition: tag persone per una foto ───────────────────────────
+  .get("/photos/:photoId/persone", requireAuth, async (c) => {
+    const user = c.get("user")!;
+    const tenantId = await getTenantId(user.id);
+    if (!tenantId) return c.json({ persone: [] }, 200);
+
+    const links = await db.select().from(schema.fotoPersone)
+      .where(eq(schema.fotoPersone.photoId, c.req.param("photoId"))).all();
+
+    if (links.length === 0) return c.json({ persone: [] }, 200);
+
+    const personaIds = links.map((l) => l.personaId);
+    const persone = await db.select().from(schema.facePersone)
+      .where(and(
+        inArray(schema.facePersone.id, personaIds),
+        eq(schema.facePersone.tenantId, tenantId)
+      )).all();
+
+    return c.json({ persone: persone.map((p) => ({ id: p.id, nome: p.nome })) }, 200);
+  })
+
+  // ── Face recognition: rimuovi tag foto-persona ────────────────────────────
+  .delete("/photos/:photoId/persone/:personaId", requireAuth, async (c) => {
+    const user = c.get("user")!;
+    const tenantId = await getTenantId(user.id);
+    if (!tenantId) return c.json({ error: "Non autorizzato" }, 401);
+
+    await db.delete(schema.fotoPersone).where(
+      and(
+        eq(schema.fotoPersone.photoId, c.req.param("photoId")),
+        eq(schema.fotoPersone.personaId, c.req.param("personaId"))
+      )
+    );
+
+    return c.json({ ok: true }, 200);
+  })
 
 ;

@@ -14,6 +14,7 @@ const Progetti = lazy(() => import("./pages/progetti"));
 const ProgettoDetail = lazy(() => import("./pages/progetto-detail"));
 const GalleryPage = lazy(() => import("./pages/gallery"));
 const GalleryDetail = lazy(() => import("./pages/gallery-detail"));
+const GalleryPersone = lazy(() => import("./pages/gallery-persone"));
 const VideoPage = lazy(() => import("./pages/video"));
 const VideoDetail = lazy(() => import("./pages/video-detail"));
 const Impostazioni = lazy(() => import("./pages/impostazioni"));
@@ -160,6 +161,16 @@ function App() {
             <AuthGuard>
               <ProtectedLayout>
                 <GalleryPage />
+              </ProtectedLayout>
+            </AuthGuard>
+          }
+        />
+        <Route
+          path="/gallery/persone"
+          element={
+            <AuthGuard>
+              <ProtectedLayout>
+                <GalleryPersone />
               </ProtectedLayout>
             </AuthGuard>
           }

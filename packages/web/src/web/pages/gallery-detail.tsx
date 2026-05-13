@@ -2,9 +2,10 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { useParams, Link } from "react-router-dom";
 import { api } from "../lib/api";
 import { DashboardLayout } from "../components/layout/dashboard-layout";
-import { ArrowLeft, Link2, Upload, X, Check, Settings, Users, Trash2 } from "lucide-react";
+import { ArrowLeft, Link2, Upload, X, Check, Settings, Users, Trash2, ScanFace, User } from "lucide-react";
 
-type Photo = { id: string; url: string; filename: string; likeCount: number; comments?: Comment[] };
+type FaceTag = { id: string; nome: string };
+type Photo = { id: string; url: string; filename: string; likeCount: number; comments?: Comment[]; persone?: FaceTag[] };
 type Comment = { id: string; content: string; authorName: string; createdAt: string };
 type Gallery = {
   id: string; title: string; watermarkEnabled: boolean; shareToken: string | null;
@@ -29,6 +30,8 @@ export default function GalleryDetail() {
   const [showSettings, setShowSettings] = useState(false);
   const [accessRequests, setAccessRequests] = useState<AccessRequest[]>([]);
   const [loadingAccess, setLoadingAccess] = useState(false);
+  const [analyzing, setAnalyzing] = useState(false);
+  const [analyzeResult, setAnalyzeResult] = useState<{ newPersone: number; newFaces: number } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const load = useCallback(async () => {
@@ -70,6 +73,21 @@ export default function GalleryDetail() {
         const d = await confirmRes.json();
         // Reload gallery to get presigned GET URLs for new photos
         await load();
+        // Trigger face analysis in background (non-blocking)
+        const newPhotoIds = (d.photos ?? []).map((p: any) => p.id);
+        if (newPhotoIds.length > 0) {
+          api.post(`/api/galleries/${id}/photos/analyze`, { photoIds: newPhotoIds })
+            .then(async (r) => {
+              if (r.ok) {
+                const ar = await r.json() as any;
+                if (ar.newPersone > 0 || ar.newFaces > 0) {
+                  setAnalyzeResult({ newPersone: ar.newPersone, newFaces: ar.newFaces });
+                  setTimeout(() => setAnalyzeResult(null), 5000);
+                }
+              }
+            })
+            .catch(() => { /* ignore */ });
+        }
       }
     } catch (e) {
       console.error("Upload failed", e);
@@ -84,11 +102,21 @@ export default function GalleryDetail() {
 
   const openPhoto = async (photo: Photo) => {
     setSelectedPhoto(photo);
-    const res = await api.get(`/api/galleries/photos/${photo.id}/comments`);
-    if (res.ok) {
-      const d = await res.json();
+    // Load comments + face tags in parallel
+    const [commentsRes, personeRes] = await Promise.all([
+      api.get(`/api/galleries/photos/${photo.id}/comments`),
+      api.get(`/api/galleries/photos/${photo.id}/persone`),
+    ]);
+    if (commentsRes.ok) {
+      const d = await commentsRes.json();
       setPhotos((prev) => prev.map((p) => (p.id === photo.id ? { ...p, comments: d.comments ?? d } : p)));
       setSelectedPhoto((prev) => prev ? { ...prev, comments: d.comments ?? d } : prev);
+    }
+    if (personeRes.ok) {
+      const d = await personeRes.json() as any;
+      const persone: FaceTag[] = d.persone ?? [];
+      setPhotos((prev) => prev.map((p) => (p.id === photo.id ? { ...p, persone } : p)));
+      setSelectedPhoto((prev) => prev ? { ...prev, persone } : prev);
     }
   };
 
@@ -144,6 +172,20 @@ export default function GalleryDetail() {
     setDeletingPhoto(null);
   };
 
+  const analyzeAll = async () => {
+    if (!id) return;
+    setAnalyzing(true);
+    try {
+      const r = await api.post(`/api/galleries/${id}/photos/analyze`, {});
+      if (r.ok) {
+        const d = await r.json() as any;
+        setAnalyzeResult({ newPersone: d.newPersone, newFaces: d.newFaces });
+        setTimeout(() => setAnalyzeResult(null), 6000);
+      }
+    } catch { /* ignore */ }
+    setAnalyzing(false);
+  };
+
   const generateShareLink = async () => {
     if (!id) return;
     const res = await api.post(`/api/galleries/${id}/share`);
@@ -175,6 +217,15 @@ export default function GalleryDetail() {
             <h1 className="text-lg sm:text-2xl font-bold text-[#f5f5f5] truncate">{gallery.title}</h1>
             {gallery.project && <p className="text-xs text-[#a0a0a0] mt-0.5">{gallery.project.name}</p>}
           </div>
+          {/* Analizza volti */}
+          <button
+            onClick={analyzeAll}
+            disabled={analyzing}
+            title="Analizza volti con AI e crea album per persona"
+            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg border border-[rgba(255,255,255,0.08)] text-[#a0a0a0] hover:text-[#F5A623] hover:border-[rgba(245,166,35,0.3)] transition-all disabled:opacity-50"
+          >
+            <ScanFace size={12} /> <span className="hidden sm:inline">{analyzing ? "Analisi..." : "Analizza"}</span>
+          </button>
           {/* Settings button */}
           <button
             onClick={() => { setShowSettings(s => !s); if (!showSettings && gallery.accessGate) loadAccessRequests(); }}
@@ -346,6 +397,19 @@ export default function GalleryDetail() {
         )}
 
         {/* Drop zone */}
+        {/* Banner risultato analisi */}
+        {analyzeResult && (
+          <div className="mb-4 flex items-center gap-2 px-4 py-2.5 bg-[#F5A623]/10 border border-[#F5A623]/30 rounded-xl text-sm text-[#F5A623]">
+            <ScanFace size={15} />
+            <span>
+              Analisi completata — {analyzeResult.newFaces} {analyzeResult.newFaces === 1 ? "volto rilevato" : "volti rilevati"}
+              {analyzeResult.newPersone > 0 && `, ${analyzeResult.newPersone} nuov${analyzeResult.newPersone === 1 ? "a persona" : "e persone"} create`}
+              {analyzeResult.newPersone === 0 && analyzeResult.newFaces > 0 && " (già categorizzati)"}
+            </span>
+            <Link to="/gallery/persone" className="ml-auto text-xs underline hover:no-underline">Vedi persone →</Link>
+          </div>
+        )}
+
         <div
           onDragOver={(e) => { e.preventDefault(); setDragActive(true); }}
           onDragLeave={() => setDragActive(false)}
@@ -410,8 +474,23 @@ export default function GalleryDetail() {
           <div className="flex-1 flex items-center justify-center p-4 min-w-0">
             <img src={selectedPhoto.url} alt={selectedPhoto.filename} className="max-w-full max-h-full object-contain rounded-lg" />
           </div>
-          {/* Comments sidebar */}
+          {/* Comments + Persone sidebar */}
           <div className="w-[280px] sm:w-[320px] shrink-0 bg-[#111] border-l border-[rgba(255,255,255,0.07)] flex flex-col">
+            {/* Persone tag */}
+            {(selectedPhoto.persone ?? []).length > 0 && (
+              <div className="px-4 py-2.5 border-b border-[rgba(255,255,255,0.07)] flex flex-wrap gap-1.5">
+                {(selectedPhoto.persone ?? []).map((p) => (
+                  <Link
+                    key={p.id}
+                    to="/gallery/persone"
+                    onClick={() => setSelectedPhoto(null)}
+                    className="flex items-center gap-1 px-2 py-0.5 bg-[#F5A623]/10 border border-[#F5A623]/30 text-[#F5A623] text-[11px] font-medium rounded-full hover:bg-[#F5A623]/20 transition-colors"
+                  >
+                    <User size={10} /> {p.nome}
+                  </Link>
+                ))}
+              </div>
+            )}
             <div className="flex items-center justify-between px-4 py-3 border-b border-[rgba(255,255,255,0.07)]">
               <h3 className="text-sm font-semibold text-[#f5f5f5]">Commenti</h3>
               <button onClick={() => setSelectedPhoto(null)} className="p-1 rounded-lg text-[#666] hover:text-[#f5f5f5] hover:bg-[#1a1a1a] transition-colors">
