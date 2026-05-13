@@ -1,7 +1,7 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { api } from "../lib/api";
 import { DashboardLayout } from "../components/layout/dashboard-layout";
-import { Save, Check, UserPlus, X, Mail, Trash2, Users, Calendar, Link2, Loader2, CheckCircle2, AlertCircle } from "lucide-react";
+import { Save, Check, UserPlus, X, Mail, Trash2, Users, Calendar, Link2, Loader2, CheckCircle2, AlertCircle, Download, Upload, DatabaseBackup } from "lucide-react";
 
 type TenantSettings = { brandName: string; primaryColor: string; logoUrl: string | null };
 type Member = { id: string; name: string; email: string; image: string | null; role: string };
@@ -119,6 +119,57 @@ export default function Impostazioni() {
       document.documentElement.style.setProperty("--primary", settings.primaryColor);
     }
     setSaving(false);
+  };
+
+  // Backup state
+  const [exporting, setExporting] = useState(false);
+  const [importing, setImporting] = useState(false);
+  const [importResult, setImportResult] = useState<{ ok: boolean; msg: string } | null>(null);
+  const importRef = useRef<HTMLInputElement>(null);
+
+  const exportBackup = async () => {
+    setExporting(true);
+    try {
+      const res = await api.get("/api/backup/export");
+      if (!res.ok) throw new Error("Export fallito");
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `frame-backup-${new Date().toISOString().slice(0, 10)}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (e: any) {
+      setImportResult({ ok: false, msg: "Export fallito: " + (e.message ?? "errore sconosciuto") });
+    }
+    setExporting(false);
+  };
+
+  const importBackup = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setImporting(true);
+    setImportResult(null);
+    try {
+      const text = await file.text();
+      const json = JSON.parse(text);
+      const res = await api.post("/api/backup/import", json);
+      const d = await res.json() as any;
+      if (res.ok && d.ok) {
+        const s = d.stats;
+        setImportResult({
+          ok: true,
+          msg: `Ripristino completato: ${s.clients} clienti, ${s.quotes} preventivi, ${s.contracts} contratti, ${s.projects} progetti, ${s.galleries} gallerie, ${s.photos} foto, ${s.videos} video, ${s.entrate + s.uscite} movimenti contabili.`,
+        });
+      } else {
+        setImportResult({ ok: false, msg: d.error ?? "Importazione fallita" });
+      }
+    } catch (err: any) {
+      setImportResult({ ok: false, msg: "File non valido: " + (err.message ?? "JSON malformato") });
+    }
+    setImporting(false);
+    // Reset input
+    if (importRef.current) importRef.current.value = "";
   };
 
   const connectGcal = async () => {
@@ -379,6 +430,55 @@ export default function Impostazioni() {
               {gcalLoading ? "Connessione in corso..." : "Collega Google Calendar"}
             </button>
           )}
+        </div>
+
+        {/* Backup & Ripristino */}
+        <div className="bg-[#111] border border-[rgba(255,255,255,0.07)] rounded-xl p-5 sm:p-6 mb-4">
+          <div className="flex items-center gap-2 mb-4">
+            <DatabaseBackup size={16} className="text-[#F5A623]" />
+            <h2 className="text-base font-semibold text-[#f5f5f5]">Backup & Ripristino</h2>
+          </div>
+          <p className="text-sm text-[#a0a0a0] mb-5">
+            Esporta tutti i dati (clienti, preventivi, contratti, progetti, gallerie, contabilità) in un file JSON.
+            Puoi usarlo per migrare account o ripristinare dati eliminati accidentalmente.<br />
+            <span className="text-[#555] text-xs mt-1 block">Nota: i file media (foto e video) non sono inclusi nel backup — solo i metadati.</span>
+          </p>
+
+          {importResult && (
+            <div className={`flex items-start gap-2 text-sm rounded-xl px-4 py-3 mb-4 ${importResult.ok ? "bg-green-500/10 border border-green-500/30 text-green-400" : "bg-red-500/10 border border-red-500/30 text-red-400"}`}>
+              {importResult.ok ? <CheckCircle2 size={14} className="mt-0.5 shrink-0" /> : <AlertCircle size={14} className="mt-0.5 shrink-0" />}
+              <span>{importResult.msg}</span>
+            </div>
+          )}
+
+          <div className="flex flex-wrap gap-3">
+            {/* Export */}
+            <button
+              onClick={exportBackup}
+              disabled={exporting}
+              className="flex items-center gap-2 px-5 py-2.5 text-sm font-semibold bg-[#F5A623] hover:bg-[#e09615] text-black rounded-xl transition-colors disabled:opacity-60"
+            >
+              {exporting ? <Loader2 size={15} className="animate-spin" /> : <Download size={15} />}
+              {exporting ? "Esportazione..." : "Esporta backup"}
+            </button>
+
+            {/* Import */}
+            <button
+              onClick={() => importRef.current?.click()}
+              disabled={importing}
+              className="flex items-center gap-2 px-5 py-2.5 text-sm font-semibold bg-[rgba(255,255,255,0.06)] hover:bg-[rgba(255,255,255,0.1)] text-[#f5f5f5] border border-[rgba(255,255,255,0.08)] rounded-xl transition-colors disabled:opacity-60"
+            >
+              {importing ? <Loader2 size={15} className="animate-spin" /> : <Upload size={15} />}
+              {importing ? "Ripristino in corso..." : "Ripristina da backup"}
+            </button>
+            <input
+              ref={importRef}
+              type="file"
+              accept=".json,application/json"
+              className="hidden"
+              onChange={importBackup}
+            />
+          </div>
         </div>
 
         {/* Plans */}
