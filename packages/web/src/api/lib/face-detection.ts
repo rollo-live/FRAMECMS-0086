@@ -1,98 +1,68 @@
 /**
- * Face detection + embedding extraction using @vladmandic/human (TF.js node)
- * Runs server-side on photo upload.
+ * Face detection + embedding extraction via Python/DeepFace subprocess.
+ * Uses DeepFace with Facenet model (128-dim embeddings).
+ * Node subprocess → python3 face_detect.py <image_path> → JSON stdout
  */
 
-let humanInstance: any = null;
+import { execFile } from "child_process";
+import { promisify } from "util";
+import { writeFile, unlink } from "fs/promises";
+import { tmpdir } from "os";
+import { join } from "path";
+import { randomBytes } from "crypto";
+import { fileURLToPath } from "url";
+import { dirname } from "path";
 
-async function getHuman() {
-  if (humanInstance) return humanInstance;
+const execFileAsync = promisify(execFile);
 
-  // Dynamic import to avoid loading TF at startup
-  const { Human } = await import("@vladmandic/human");
-
-  const config = {
-    modelBasePath: "https://vladmandic.github.io/human/models/",
-    face: {
-      enabled: true,
-      detector: { enabled: true, rotation: true, minConfidence: 0.3 },
-      mesh: { enabled: false },
-      iris: { enabled: false },
-      emotion: { enabled: false },
-      description: { enabled: true }, // produces 128-dim embedding
-      age: { enabled: false },
-      gender: { enabled: false },
-    },
-    body: { enabled: false },
-    hand: { enabled: false },
-    gesture: { enabled: false },
-    object: { enabled: false },
-    segmentation: { enabled: false },
-    // Use tfjs-node backend
-    backend: "tensorflow" as const,
-    wasmPath: "",
-    debug: false,
-  };
-
-  humanInstance = new Human(config);
-  await humanInstance.load();
-  return humanInstance;
-}
+// Path to the Python detector script (same directory as this file)
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+const DETECTOR_SCRIPT = join(__dirname, "face_detect.py");
 
 export interface FaceResult {
   embedding: number[];
-  box: { x: number; y: number; width: number; height: number }; // normalized 0-1
+  box: { x: number; y: number; width: number; height: number }; // pixels (not normalized)
   confidence: number;
 }
 
 /**
  * Detect faces in an image buffer and return embeddings + bounding boxes.
+ * Writes buffer to a temp file, calls Python script, parses JSON output.
  */
 export async function detectFaces(imageBuffer: Buffer): Promise<FaceResult[]> {
+  const tmpPath = join(tmpdir(), `face_${randomBytes(8).toString("hex")}.jpg`);
+
   try {
-    const human = await getHuman();
+    // Write buffer to temp file
+    await writeFile(tmpPath, imageBuffer);
 
-    // Convert buffer to tensor via sharp or raw decode
-    // @vladmandic/human accepts ImageData-like objects
-    // We'll use jimp (bundled with human) or sharp
-    let tensor: any;
+    const { stdout, stderr } = await execFileAsync(
+      "python3",
+      [DETECTOR_SCRIPT, tmpPath],
+      {
+        timeout: 30_000,
+        env: {
+          ...process.env,
+          TF_CPP_MIN_LOG_LEVEL: "3",
+          CUDA_VISIBLE_DEVICES: "",
+        },
+        maxBuffer: 10 * 1024 * 1024, // 10MB for large embeddings arrays
+      }
+    );
 
-    try {
-      // Try using tfjs to decode image
-      const tf = (await import("@tensorflow/tfjs-node")).default;
-      tensor = tf.node.decodeImage(imageBuffer, 3);
-    } catch {
-      return [];
+    if (stderr) {
+      console.warn("[face-detection] stderr:", stderr.slice(0, 300));
     }
 
-    const result = await human.detect(tensor, {});
-    tensor.dispose?.();
-
-    if (!result.face || result.face.length === 0) return [];
-
-    const faces: FaceResult[] = result.face
-      .filter((f: any) => f.score > 0.3 && f.embedding && f.embedding.length > 0)
-      .map((f: any) => {
-        // box is [x, y, width, height] in pixels — normalize by image dims
-        const [bx, by, bw, bh] = f.box ?? [0, 0, 0, 0];
-        const iw = result.width ?? 1;
-        const ih = result.height ?? 1;
-        return {
-          embedding: Array.from(f.embedding as number[]),
-          box: {
-            x: bx / iw,
-            y: by / ih,
-            width: bw / iw,
-            height: bh / ih,
-          },
-          confidence: f.score,
-        };
-      });
-
+    const faces: FaceResult[] = JSON.parse(stdout.trim() || "[]");
     return faces;
-  } catch (e) {
-    console.error("[face-detection] error:", e);
+  } catch (e: any) {
+    console.error("[face-detection] error:", e?.message ?? e);
     return [];
+  } finally {
+    // Clean up temp file
+    unlink(tmpPath).catch(() => {});
   }
 }
 
@@ -101,7 +71,9 @@ export async function detectFaces(imageBuffer: Buffer): Promise<FaceResult[]> {
  */
 export function cosineSimilarity(a: number[], b: number[]): number {
   if (a.length !== b.length || a.length === 0) return 0;
-  let dot = 0, normA = 0, normB = 0;
+  let dot = 0,
+    normA = 0,
+    normB = 0;
   for (let i = 0; i < a.length; i++) {
     dot += a[i] * b[i];
     normA += a[i] * a[i];
@@ -124,5 +96,5 @@ export function averageEmbeddings(embeddings: number[][]): number[] {
   return sum.map((v) => v / embeddings.length);
 }
 
-/** Match threshold: above this similarity → same person */
+/** Match threshold: above this cosine similarity → same person */
 export const FACE_MATCH_THRESHOLD = 0.6;
