@@ -2,17 +2,18 @@ import React, { useEffect, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { LayoutDashboard, Users, FileText, FolderOpen, Image, Video, Settings, LogOut, Aperture, Receipt, X, CalendarCheck, BookOpen } from "lucide-react";
 import { authClient } from "../../lib/auth";
+import { usePermissions, type SectionKey } from "../../lib/permissions";
 
-const navItems = [
-  { icon: LayoutDashboard, label: "Dashboard", href: "/dashboard" },
-  { icon: Users, label: "Clienti & Lead", href: "/clienti" },
-  { icon: Receipt, label: "Preventivi", href: "/preventivi" },
-  { icon: FileText, label: "Contratti", href: "/contratti" },
-  { icon: FolderOpen, label: "Progetti", href: "/progetti" },
-  { icon: Image, label: "Gallery", href: "/gallery" },
-  { icon: Video, label: "Video Review", href: "/video" },
-  { icon: CalendarCheck, label: "Prenotazioni", href: "/prenotazioni", badge: true },
-  { icon: BookOpen, label: "Contabilità", href: "/contabilita" },
+const navItems: { icon: React.ElementType; label: string; href: string; section: SectionKey; badge?: boolean }[] = [
+  { icon: LayoutDashboard, label: "Dashboard", href: "/dashboard", section: "dashboard" },
+  { icon: Users, label: "Clienti & Lead", href: "/clienti", section: "clienti" },
+  { icon: Receipt, label: "Preventivi", href: "/preventivi", section: "preventivi" },
+  { icon: FileText, label: "Contratti", href: "/contratti", section: "contratti" },
+  { icon: FolderOpen, label: "Progetti", href: "/progetti", section: "progetti" },
+  { icon: Image, label: "Gallery", href: "/gallery", section: "gallery" },
+  { icon: Video, label: "Video Review", href: "/video", section: "video" },
+  { icon: CalendarCheck, label: "Prenotazioni", href: "/prenotazioni", section: "prenotazioni", badge: true },
+  { icon: BookOpen, label: "Contabilità", href: "/contabilita", section: "contabilita" },
 ];
 
 interface SidebarProps {
@@ -25,6 +26,7 @@ export function Sidebar({ open, onClose }: SidebarProps) {
   const navigate = useNavigate();
   const [pendingCount, setPendingCount] = useState(0);
   const { data: session } = authClient.useSession();
+  const { canAccess } = usePermissions();
 
   useEffect(() => {
     if (!session) return;
@@ -87,7 +89,7 @@ export function Sidebar({ open, onClose }: SidebarProps) {
         {/* Nav */}
         <nav className="flex-1 px-3 py-4 overflow-y-auto">
           <div className="space-y-0.5">
-            {navItems.map(({ icon: Icon, label, href, badge }) => {
+            {navItems.filter(({ section }) => canAccess(section)).map(({ icon: Icon, label, href, badge }) => {
               const active = location.pathname === href || location.pathname.startsWith(href + "/");
               const showBadge = badge && pendingCount > 0;
               return (

@@ -47,7 +47,11 @@ export const team = new Hono()
       profiles.map(async (p) => {
         const u = await db.select({ id: schema.user.id, name: schema.user.name, email: schema.user.email, image: schema.user.image })
           .from(schema.user).where(eq(schema.user.id, p.userId)).get();
-        return u ? { ...u, role: p.role } : null;
+        return u ? {
+          ...u,
+          role: p.role,
+          permissions: p.permissions ? JSON.parse(p.permissions) : null,
+        } : null;
       })
     );
 
@@ -82,11 +86,14 @@ export const team = new Hono()
     const token = nanoid(32);
     const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
 
+    const { permissions } = body; // optional: array of section keys or null
+
     const [invite] = await db.insert(schema.teamInvites).values({
       id: nanoid(),
       tenantId,
       email,
       role,
+      permissions: permissions ? JSON.stringify(permissions) : null,
       token,
       invitedBy: user.id,
       status: "pending",
@@ -130,6 +137,42 @@ export const team = new Hono()
     return c.json({ ok: true }, 200);
   })
 
+  // PATCH /api/team/member/:userId/permissions — aggiorna permessi membro
+  .patch("/member/:userId/permissions", requireAuth, async (c) => {
+    const user = c.get("user")!;
+    const tenantId = await getTenantId(user.id);
+    if (!tenantId) return c.json({ error: "Non trovato" }, 404);
+
+    // Solo owner può modificare i permessi
+    const myProfile = await db.select().from(schema.userProfiles).where(eq(schema.userProfiles.userId, user.id)).get();
+    if (myProfile?.role !== "owner") return c.json({ error: "Solo gli owner possono modificare i permessi" }, 403);
+
+    const targetId = c.req.param("userId");
+    const { permissions, role } = await c.req.json() as { permissions: string[] | null; role?: string };
+
+    const updateData: any = {
+      permissions: permissions === null ? null : JSON.stringify(permissions),
+      updatedAt: new Date(),
+    };
+    if (role) updateData.role = role;
+
+    await db.update(schema.userProfiles).set(updateData)
+      .where(and(eq(schema.userProfiles.userId, targetId), eq(schema.userProfiles.tenantId, tenantId)));
+
+    return c.json({ ok: true });
+  })
+
+  // GET /api/team/my-permissions — permessi dell'utente corrente
+  .get("/my-permissions", requireAuth, async (c) => {
+    const user = c.get("user")!;
+    const profile = await db.select().from(schema.userProfiles).where(eq(schema.userProfiles.userId, user.id)).get();
+    if (!profile) return c.json({ role: null, permissions: null });
+    return c.json({
+      role: profile.role,
+      permissions: profile.permissions ? JSON.parse(profile.permissions) : null,
+    });
+  })
+
   // POST /api/team/accept — accetta invito (usato dal frontend dopo registrazione)
   .post("/accept", async (c) => {
     const { token } = await c.req.json();
@@ -148,16 +191,20 @@ export const team = new Hono()
     const u = await db.select().from(schema.user).where(eq(schema.user.email, invite.email)).get();
     if (!u) return c.json({ needsRegister: true, email: invite.email, token }, 200);
 
-    // Collega al tenant
+    // Collega al tenant con permessi
     const existing = await db.select().from(schema.userProfiles).where(eq(schema.userProfiles.userId, u.id)).get();
     if (existing) {
-      await db.update(schema.userProfiles).set({ tenantId: invite.tenantId, role: invite.role })
-        .where(eq(schema.userProfiles.userId, u.id));
+      await db.update(schema.userProfiles).set({
+        tenantId: invite.tenantId,
+        role: invite.role,
+        permissions: invite.permissions ?? null,
+      }).where(eq(schema.userProfiles.userId, u.id));
     } else {
       await db.insert(schema.userProfiles).values({
         userId: u.id,
         tenantId: invite.tenantId,
         role: invite.role,
+        permissions: invite.permissions ?? null,
       });
     }
 

@@ -18,6 +18,9 @@ export const userProfiles = sqliteTable("user_profiles", {
   userId: text("user_id").primaryKey(),
   tenantId: text("tenant_id").references(() => tenants.id),
   role: text("role").notNull().default("owner"), // owner | staff
+  // JSON array of allowed sections — null means all allowed (owner always sees all)
+  // e.g. ["dashboard","clienti","preventivi","contratti","progetti","gallery","video","prenotazioni","contabilita"]
+  permissions: text("permissions").default(null),
   updatedAt: integer("updated_at", { mode: "timestamp" }).$defaultFn(() => new Date()),
 });
 
@@ -124,6 +127,7 @@ export const teamInvites = sqliteTable("team_invites", {
   tenantId: text("tenant_id").notNull().references(() => tenants.id),
   email: text("email").notNull(),
   role: text("role").notNull().default("staff"), // owner | staff
+  permissions: text("permissions").default(null), // JSON array of SectionKey | null = all
   token: text("token").notNull().unique(),
   invitedBy: text("invited_by").notNull(), // userId
   status: text("status").notNull().default("pending"), // pending | accepted | expired

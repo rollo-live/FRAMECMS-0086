@@ -1,10 +1,11 @@
 import { useState, useEffect, useRef } from "react";
 import { api } from "../lib/api";
 import { DashboardLayout } from "../components/layout/dashboard-layout";
-import { Save, Check, UserPlus, X, Mail, Trash2, Users, Calendar, Link2, Loader2, CheckCircle2, AlertCircle, Download, Upload, DatabaseBackup } from "lucide-react";
+import { Save, Check, UserPlus, X, Mail, Trash2, Users, Calendar, Loader2, CheckCircle2, AlertCircle, Download, Upload, DatabaseBackup, ShieldCheck } from "lucide-react";
+import { ALL_SECTIONS, SECTION_LABELS, type SectionKey, invalidatePermissionsCache } from "../lib/permissions";
 
 type TenantSettings = { brandName: string; primaryColor: string; logoUrl: string | null };
-type Member = { id: string; name: string; email: string; image: string | null; role: string };
+type Member = { id: string; name: string; email: string; image: string | null; role: string; permissions: SectionKey[] | null };
 type Invite = { id: string; email: string; role: string; status: string; createdAt: string | null };
 
 type Plan = { id: string; name: string; price: string; features: string[]; recommended?: boolean };
@@ -14,6 +15,138 @@ const PLANS: Plan[] = [
   { id: "agency", name: "Agency", price: "€79/mese", features: ["Tutto di Pro", "Foto illimitate", "White-label completo", "Logo personalizzato", "Supporto prioritario"] },
 ];
 
+// ── MemberPermissionRow ─────────────────────────────────────────────────────
+type MemberPermissionRowProps = {
+  member: Member;
+  myRole: string;
+  onSave: (userId: string, perms: SectionKey[] | null, role: string) => Promise<void>;
+  onRemove: (userId: string) => void;
+  isSaving: boolean;
+};
+
+function MemberPermissionRow({ member: m, myRole, onSave, onRemove, isSaving }: MemberPermissionRowProps) {
+  const [isEditing, setIsEditing] = useState(false);
+  const [localPerms, setLocalPerms] = useState<SectionKey[]>(m.permissions ?? [...ALL_SECTIONS]);
+  const [localRole, setLocalRole] = useState(m.role);
+
+  return (
+    <div className="bg-[#0a0a0a] border border-[rgba(255,255,255,0.06)] rounded-xl overflow-hidden">
+      {/* Header row */}
+      <div className="flex items-center gap-3 p-3">
+        <div className="w-8 h-8 rounded-full bg-[#F5A623] flex items-center justify-center text-black font-bold text-sm shrink-0">
+          {m.image ? <img src={m.image} alt={m.name} className="w-8 h-8 rounded-full object-cover" /> : m.name.charAt(0).toUpperCase()}
+        </div>
+        <div className="flex-1 min-w-0">
+          <p className="text-sm font-medium text-[#f5f5f5] truncate">{m.name}</p>
+          <p className="text-xs text-[#555] truncate">{m.email}</p>
+        </div>
+        <span className="text-xs text-[#F5A623] font-semibold px-2 py-0.5 bg-[rgba(245,166,35,0.1)] rounded-lg shrink-0">
+          {m.role}
+        </span>
+        {myRole === "owner" && (
+          <button
+            onClick={() => setIsEditing((v) => !v)}
+            className="shrink-0 p-1.5 rounded-lg text-[#444] hover:text-[#F5A623] hover:bg-[rgba(245,166,35,0.08)] transition-colors"
+            title="Modifica permessi"
+          >
+            <ShieldCheck size={13} />
+          </button>
+        )}
+        {myRole === "owner" && (
+          <button onClick={() => onRemove(m.id)} className="shrink-0 p-1.5 rounded-lg text-[#444] hover:text-red-400 hover:bg-[rgba(239,68,68,0.1)] transition-colors">
+            <Trash2 size={13} />
+          </button>
+        )}
+      </div>
+
+      {/* Permission panel */}
+      {isEditing && (
+        <div className="border-t border-[rgba(255,255,255,0.06)] p-3 space-y-3">
+          {/* Role */}
+          <div className="flex items-center gap-2">
+            <label className="text-xs text-[#a0a0a0] w-14 shrink-0">Ruolo</label>
+            <select
+              value={localRole}
+              onChange={(e) => setLocalRole(e.target.value)}
+              className="px-2.5 py-1.5 text-xs bg-[#111] border border-[rgba(255,255,255,0.08)] rounded-lg text-[#f5f5f5] outline-none"
+            >
+              <option value="staff">Staff</option>
+              <option value="owner">Owner</option>
+            </select>
+          </div>
+
+          {/* Sections — solo se staff */}
+          {localRole === "staff" && (
+            <>
+              <div>
+                <p className="text-xs text-[#a0a0a0] mb-2 flex items-center gap-1.5">
+                  <ShieldCheck size={11} /> Sezioni visibili
+                </p>
+                <div className="flex flex-wrap gap-1.5">
+                  {ALL_SECTIONS.map((s) => (
+                    <button
+                      key={s}
+                      type="button"
+                      onClick={() => setLocalPerms((prev) =>
+                        prev.includes(s) ? prev.filter((x) => x !== s) : [...prev, s]
+                      )}
+                      className={`px-2.5 py-1 text-xs rounded-lg border transition-all ${
+                        localPerms.includes(s)
+                          ? "bg-[rgba(245,166,35,0.15)] border-[rgba(245,166,35,0.4)] text-[#F5A623]"
+                          : "bg-transparent border-[rgba(255,255,255,0.08)] text-[#555] line-through"
+                      }`}
+                    >
+                      {SECTION_LABELS[s]}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div className="flex gap-2 pt-1">
+                <button
+                  type="button"
+                  onClick={() => setLocalPerms([...ALL_SECTIONS])}
+                  className="text-xs text-[#555] hover:text-[#a0a0a0] underline"
+                >
+                  Seleziona tutto
+                </button>
+                <span className="text-[#333]">·</span>
+                <button
+                  type="button"
+                  onClick={() => setLocalPerms([])}
+                  className="text-xs text-[#555] hover:text-[#a0a0a0] underline"
+                >
+                  Deseleziona tutto
+                </button>
+              </div>
+            </>
+          )}
+
+          <div className="flex gap-2 pt-1">
+            <button
+              onClick={async () => {
+                await onSave(m.id, localRole === "owner" ? null : localPerms, localRole);
+                setIsEditing(false);
+              }}
+              disabled={isSaving}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold bg-[#F5A623] hover:bg-[#e09615] text-black rounded-lg transition-colors disabled:opacity-60"
+            >
+              {isSaving ? <Loader2 size={11} className="animate-spin" /> : <Check size={11} />}
+              Salva
+            </button>
+            <button
+              onClick={() => setIsEditing(false)}
+              className="px-3 py-1.5 text-xs text-[#666] hover:text-[#a0a0a0] rounded-lg transition-colors"
+            >
+              Annulla
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Impostazioni ─────────────────────────────────────────────────────────────
 export default function Impostazioni() {
   const [settings, setSettings] = useState<TenantSettings>({ brandName: "", primaryColor: "#F5A623", logoUrl: null });
   const [loading, setLoading] = useState(true);
@@ -31,6 +164,11 @@ export default function Impostazioni() {
   const [inviting, setInviting] = useState(false);
   const [inviteSent, setInviteSent] = useState(false);
   const [inviteError, setInviteError] = useState("");
+  // Invite permissions
+  const [invitePermissions, setInvitePermissions] = useState<SectionKey[]>([...ALL_SECTIONS]);
+  // Member permissions saving tracker (per userId)
+  const [permSaving, setPermSaving] = useState<string | null>(null);
+  const [myRole, setMyRole] = useState<string>("owner");
 
   // Google Calendar state
   const [gcalConnected, setGcalConnected] = useState(false);
@@ -43,11 +181,16 @@ export default function Impostazioni() {
       api.get("/api/tenant/plan"),
       api.get("/api/team"),
       api.get("/api/bookings/oauth/status"),
-    ]).then(([sRes, pRes, tRes, gcalRes]) => {
+      api.get("/api/team/my-permissions"),
+    ]).then(([sRes, pRes, tRes, gcalRes, myPermRes]) => {
       if (sRes.ok) sRes.json().then((d: any) => setSettings(d.settings ?? d));
       if (pRes.ok) pRes.json().then((d: any) => setCurrentPlan(d.plan ?? d.planId ?? "free"));
-      if (tRes.ok) tRes.json().then((d: any) => { setMembers(d.members ?? []); setInvites(d.invites ?? []); });
+      if (tRes.ok) tRes.json().then((d: any) => {
+        setMembers(d.members ?? []);
+        setInvites(d.invites ?? []);
+      });
       if (gcalRes.ok) gcalRes.json().then((d: any) => setGcalConnected(d.connected ?? false));
+      if (myPermRes.ok) myPermRes.json().then((d: any) => setMyRole(d.role ?? "owner"));
       setLoading(false);
     });
 
@@ -63,11 +206,26 @@ export default function Impostazioni() {
     }
   }, []);
 
+  const savePermissions = async (userId: string, permissions: SectionKey[] | null, role: string) => {
+    setPermSaving(userId);
+    await api.patch(`/api/team/member/${userId}/permissions`, { permissions, role });
+    setMembers((prev) => prev.map((m) => m.id === userId ? { ...m, permissions, role } : m));
+    invalidatePermissionsCache();
+    setPermSaving(null);
+  };
+
+  const toggleInvitePermission = (section: SectionKey) => {
+    setInvitePermissions((prev) =>
+      prev.includes(section) ? prev.filter((s) => s !== section) : [...prev, section]
+    );
+  };
+
   const sendInvite = async () => {
     if (!inviteEmail.trim()) return;
     setInviting(true);
     setInviteError("");
-    const res = await api.post("/api/team/invite", { email: inviteEmail.trim(), role: inviteRole });
+    const perms = inviteRole === "owner" ? null : invitePermissions;
+    const res = await api.post("/api/team/invite", { email: inviteEmail.trim(), role: inviteRole, permissions: perms });
     if (res.ok) {
       const d = await res.json();
       setInvites((prev) => [...prev, d.invite]);
@@ -290,7 +448,7 @@ export default function Impostazioni() {
           {/* Invite form */}
           <div className="mb-5">
             <label className="text-xs font-semibold text-[#a0a0a0] uppercase tracking-wide block mb-2">Invita membro</label>
-            <div className="flex gap-2 flex-wrap">
+            <div className="flex gap-2 flex-wrap mb-3">
               <input
                 type="email"
                 value={inviteEmail}
@@ -321,6 +479,31 @@ export default function Impostazioni() {
                 )}
               </button>
             </div>
+            {/* Permessi invito (solo per staff) */}
+            {inviteRole === "staff" && (
+              <div className="bg-[#0a0a0a] border border-[rgba(255,255,255,0.06)] rounded-xl p-3">
+                <p className="text-xs font-semibold text-[#a0a0a0] mb-2 flex items-center gap-1.5">
+                  <ShieldCheck size={12} /> Sezioni accessibili per questo membro
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  {ALL_SECTIONS.map((s) => (
+                    <button
+                      key={s}
+                      type="button"
+                      onClick={() => toggleInvitePermission(s)}
+                      className={`px-2.5 py-1 text-xs rounded-lg border transition-all ${
+                        invitePermissions.includes(s)
+                          ? "bg-[rgba(245,166,35,0.15)] border-[rgba(245,166,35,0.4)] text-[#F5A623]"
+                          : "bg-transparent border-[rgba(255,255,255,0.08)] text-[#555]"
+                      }`}
+                    >
+                      {SECTION_LABELS[s]}
+                    </button>
+                  ))}
+                </div>
+                <p className="text-xs text-[#444] mt-2">Le sezioni non selezionate saranno nascoste per questo utente.</p>
+              </div>
+            )}
             {inviteError && <p className="text-xs text-red-400 mt-1.5">{inviteError}</p>}
           </div>
 
@@ -330,21 +513,14 @@ export default function Impostazioni() {
               <p className="text-xs font-semibold text-[#a0a0a0] uppercase tracking-wide mb-2">Membri attivi</p>
               <div className="space-y-2">
                 {members.map((m) => (
-                  <div key={m.id} className="flex items-center gap-3 p-3 bg-[#0a0a0a] border border-[rgba(255,255,255,0.06)] rounded-xl">
-                    <div className="w-8 h-8 rounded-full bg-[#F5A623] flex items-center justify-center text-black font-bold text-sm shrink-0">
-                      {m.image ? <img src={m.image} alt={m.name} className="w-8 h-8 rounded-full object-cover" /> : m.name.charAt(0).toUpperCase()}
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium text-[#f5f5f5] truncate">{m.name}</p>
-                      <p className="text-xs text-[#555] truncate">{m.email}</p>
-                    </div>
-                    <span className="text-xs text-[#F5A623] font-semibold px-2 py-0.5 bg-[rgba(245,166,35,0.1)] rounded-lg shrink-0">
-                      {m.role}
-                    </span>
-                    <button onClick={() => removeMember(m.id)} className="shrink-0 p-1.5 rounded-lg text-[#444] hover:text-red-400 hover:bg-[rgba(239,68,68,0.1)] transition-colors">
-                      <Trash2 size={13} />
-                    </button>
-                  </div>
+                  <MemberPermissionRow
+                    key={m.id}
+                    member={m}
+                    myRole={myRole}
+                    onSave={savePermissions}
+                    onRemove={removeMember}
+                    isSaving={permSaving === m.id}
+                  />
                 ))}
               </div>
             </div>
