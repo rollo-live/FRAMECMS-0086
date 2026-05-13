@@ -16,12 +16,13 @@ function sendInviteEmail(email: string, inviterName: string, tenantName: string,
   const html = `
     <div style="font-family:sans-serif;max-width:480px;margin:auto;padding:32px;background:#0a0a0a;color:#f5f5f5;border-radius:12px">
       <h2 style="color:#F5A623;margin-bottom:8px">Sei stato invitato!</h2>
-      <p style="color:#a0a0a0">${inviterName} ti ha invitato a far parte del team <strong style="color:#f5f5f5">${tenantName}</strong> su FRAME.</p>
-      <a href="${link}" style="display:inline-block;margin-top:24px;padding:12px 24px;background:#F5A623;color:#000;font-weight:700;border-radius:8px;text-decoration:none">Accetta invito</a>
-      <p style="margin-top:24px;font-size:12px;color:#555">Il link scade tra 7 giorni.</p>
+      <p style="color:#a0a0a0">${inviterName} ti ha invitato a far parte del team <strong style="color:#f5f5f5">${tenantName}</strong> su Frame.</p>
+      <a href="${link}" style="display:inline-block;margin-top:24px;padding:12px 24px;background:#F5A623;color:#000;font-weight:700;border-radius:8px;text-decoration:none">Iscriviti al portale Frame</a>
+      <p style="margin-top:16px;font-size:12px;color:#777">Oppure copia questo link nel browser:<br/><span style="color:#a0a0a0">${link}</span></p>
+      <p style="margin-top:16px;font-size:12px;color:#555">Il link scade tra 7 giorni.</p>
     </div>`;
   try {
-    execSync(`send-email --to "${email}" --subject "Invito team FRAME" --html -`, {
+    execSync(`send-email --to "${email}" --subject "Iscriviti al portale Frame" --html -`, {
       input: html,
       encoding: "utf8",
     });

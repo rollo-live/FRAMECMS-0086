@@ -31,9 +31,9 @@ export default function AcceptInvite() {
         setInviteEmail(d.email ?? "");
         setState("register");
       } else {
-        // User already existed and got linked
+        // Utente già esistente e linkato — manda al login
         setState("success");
-        setTimeout(() => navigate("/dashboard", { replace: true }), 2000);
+        setTimeout(() => navigate("/login", { replace: true }), 2500);
       }
     }).catch(() => {
       setState("error");
@@ -96,8 +96,9 @@ export default function AcceptInvite() {
             <div className="w-12 h-12 rounded-full bg-green-500/20 flex items-center justify-center mx-auto mb-4">
               <Check size={24} className="text-green-400" />
             </div>
-            <p className="text-[#f5f5f5] font-semibold text-lg mb-1">Benvenuto nel team!</p>
-            <p className="text-[#555] text-sm">Accesso confermato. Reindirizzamento...</p>
+            <p className="text-[#f5f5f5] font-semibold text-lg mb-1">Account collegato!</p>
+            <p className="text-[#555] text-sm">Accedi con le tue credenziali per entrare nel team.</p>
+            <p className="text-[#444] text-xs mt-2">Reindirizzamento al login...</p>
           </div>
         )}
 
