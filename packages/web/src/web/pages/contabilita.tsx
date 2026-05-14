@@ -20,6 +20,10 @@ interface Entrata {
   id: string;
   descrizione: string;
   importo: number;
+  acconto?: number | null;
+  saldoRicevuto?: number | null;
+  clientId?: string | null;
+  clientName?: string | null;
   beneficiario: "socio_a" | "socio_b" | "split";
   fattura: boolean;
   categoria: string;
@@ -273,9 +277,10 @@ function Toggle({ value, onChange, label, sub }: {
 
 // ─── Entrata Form ─────────────────────────────────────────────────────────────
 
-function EntrataForm({ initial, settings, onSave, onClose }: {
+function EntrataForm({ initial, settings, clients, onSave, onClose }: {
   initial?: Partial<Entrata>;
   settings: ContabilitaSettings;
+  clients: { id: string; name: string }[];
   onSave: (data: Omit<Entrata, "id">) => Promise<string | null>;
   onClose: () => void;
 }) {
@@ -283,6 +288,9 @@ function EntrataForm({ initial, settings, onSave, onClose }: {
   const [form, setForm] = useState({
     descrizione: initial?.descrizione ?? "",
     importo: initial?.importo?.toString() ?? "",
+    acconto: initial?.acconto != null ? String(initial.acconto) : "",
+    saldoRicevuto: initial?.saldoRicevuto != null ? String(initial.saldoRicevuto) : "",
+    clientId: initial?.clientId ?? "",
     beneficiario: (initial?.beneficiario ?? "split") as Entrata["beneficiario"],
     fattura: initial?.fattura ?? false,
     categoria: initial?.categoria ?? "Servizio Fotografico",
@@ -294,8 +302,12 @@ function EntrataForm({ initial, settings, onSave, onClose }: {
 
   const set = (k: string, v: any) => setForm(f => ({ ...f, [k]: v }));
   const importoNum = parseFloat(form.importo || "0") || 0;
-  const acc = form.fattura ? importoNum * (settings.forfettarioBase / 100) * (settings.accAntonamentoRate / 100) : 0;
-  const netto = importoNum - acc;
+  const accontoNum = parseFloat(form.acconto || "0") || 0;
+  const saldoNum = parseFloat(form.saldoRicevuto || "0") || 0;
+  const ricevutoTotale = accontoNum + saldoNum;
+  const residuo = importoNum - ricevutoTotale;
+  const accForf = form.fattura ? importoNum * (settings.forfettarioBase / 100) * (settings.accAntonamentoRate / 100) : 0;
+  const netto = importoNum - accForf;
 
   const handleSave = async () => {
     if (!form.descrizione.trim()) { setError("Inserisci una descrizione"); return; }
@@ -304,6 +316,9 @@ function EntrataForm({ initial, settings, onSave, onClose }: {
     const err = await onSave({
       descrizione: form.descrizione.trim(),
       importo: importoNum,
+      acconto: accontoNum || null,
+      saldoRicevuto: saldoNum || null,
+      clientId: form.clientId || null,
       beneficiario: form.beneficiario,
       fattura: form.fattura,
       categoria: form.categoria,
@@ -324,14 +339,47 @@ function EntrataForm({ initial, settings, onSave, onClose }: {
       <FormField label="Descrizione *">
         <input className={inputCls} value={form.descrizione} onChange={e => set("descrizione", e.target.value)} placeholder="Es. Servizio matrimonio Rossi" />
       </FormField>
+
+      {/* Cliente opzionale */}
+      <FormField label="Cliente">
+        <select className={selectCls} value={form.clientId} onChange={e => set("clientId", e.target.value)}>
+          <option value="">— Nessun cliente —</option>
+          {clients.map(cl => <option key={cl.id} value={cl.id}>{cl.name}</option>)}
+        </select>
+      </FormField>
+
       <div className="grid grid-cols-2 gap-3">
-        <FormField label="Importo (€) *">
+        <FormField label="Totale preventivo (€) *">
           <input className={inputCls} type="number" min="0" step="0.01" value={form.importo} onChange={e => set("importo", e.target.value)} placeholder="0.00" />
         </FormField>
         <FormField label="Data *">
           <input className={inputCls} type="date" value={form.data} onChange={e => set("data", e.target.value)} />
         </FormField>
       </div>
+
+      {/* Acconto + Saldo */}
+      <div className="grid grid-cols-2 gap-3">
+        <FormField label="Acconto ricevuto (€)">
+          <input className={inputCls} type="number" min="0" step="0.01" value={form.acconto} onChange={e => set("acconto", e.target.value)} placeholder="0.00" />
+        </FormField>
+        <FormField label="Saldo ricevuto (€)">
+          <input className={inputCls} type="number" min="0" step="0.01" value={form.saldoRicevuto} onChange={e => set("saldoRicevuto", e.target.value)} placeholder="0.00" />
+        </FormField>
+      </div>
+
+      {/* Riepilogo pagamenti */}
+      {importoNum > 0 && (
+        <div className="bg-[#0d0d0d] border border-[rgba(255,255,255,0.06)] rounded-xl p-3 space-y-1.5 text-sm">
+          {accontoNum > 0 && <div className="flex justify-between"><span className="text-[#666]">Acconto</span><span className="text-[#f5f5f5]">{fmt(accontoNum)}</span></div>}
+          {saldoNum > 0 && <div className="flex justify-between"><span className="text-[#666]">Saldo</span><span className="text-[#f5f5f5]">{fmt(saldoNum)}</span></div>}
+          {ricevutoTotale > 0 && <div className="flex justify-between border-t border-[rgba(255,255,255,0.06)] pt-1.5">
+            <span className="text-[#888]">Ricevuto</span><span className="text-[#4CAF50] font-semibold">{fmt(ricevutoTotale)}</span>
+          </div>}
+          {residuo > 0.01 && <div className="flex justify-between"><span className="text-[#888]">Da incassare</span><span className="text-[#F5A623] font-semibold">{fmt(residuo)}</span></div>}
+          {residuo <= 0.01 && ricevutoTotale > 0 && <div className="flex justify-between"><span className="text-[#888]">Stato</span><span className="text-[#4CAF50] font-semibold">Saldato ✓</span></div>}
+        </div>
+      )}
+
       <FormField label="Beneficiario *">
         <select className={selectCls} value={form.beneficiario} onChange={e => set("beneficiario", e.target.value)}>
           <option value="socio_a">{settings.socioAName}</option>
@@ -348,7 +396,7 @@ function EntrataForm({ initial, settings, onSave, onClose }: {
       {form.fattura && importoNum > 0 && (
         <div className="bg-[#1a1200] border border-[rgba(245,166,35,0.2)] rounded-xl p-4 space-y-2">
           <div className="flex justify-between text-sm"><span className="text-[#888]">Lordo</span><span className="text-[#f5f5f5] font-medium">{fmt(importoNum)}</span></div>
-          <div className="flex justify-between text-sm"><span className="text-[#888]">Accantonamento ({settings.forfettarioBase}% × {settings.accAntonamentoRate}%)</span><span className="text-[#F5A623]">−{fmt(acc)}</span></div>
+          <div className="flex justify-between text-sm"><span className="text-[#888]">Accantonamento ({settings.forfettarioBase}% × {settings.accAntonamentoRate}%)</span><span className="text-[#F5A623]">−{fmt(accForf)}</span></div>
           <div className="flex justify-between text-sm border-t border-[rgba(255,255,255,0.06)] pt-2"><span className="text-[#888] font-semibold">Netto Reale</span><span className="text-[#4CAF50] font-bold">{fmt(netto)}</span></div>
         </div>
       )}
@@ -782,6 +830,7 @@ export default function Contabilita() {
   const [entrate, setEntrate] = useState<Entrata[]>([]);
   const [uscite, setUscite] = useState<Uscita[]>([]);
   const [pareggi, setPareggi] = useState<Pareggio[]>([]);
+  const [clients, setClients] = useState<{ id: string; name: string }[]>([]);
   const [loading, setLoading] = useState(true);
   const [showSettings, setShowSettings] = useState(false);
   const [addEntrata, setAddEntrata] = useState(false);
@@ -793,13 +842,14 @@ export default function Contabilita() {
   const fetchAll = useCallback(async () => {
     setLoading(true);
     try {
-      const [sRes, rRes, tRes, eRes, uRes, pRes] = await Promise.all([
+      const [sRes, rRes, tRes, eRes, uRes, pRes, clRes] = await Promise.all([
         api.get("/api/contabilita/settings"),
         api.get(`/api/contabilita/riepilogo?month=${month}&year=${year}`),
         api.get("/api/contabilita/trend"),
         api.get(`/api/contabilita/entrate?month=${month}&year=${year}`),
         api.get(`/api/contabilita/uscite?month=${month}&year=${year}`),
         api.get("/api/contabilita/pareggi"),
+        api.get("/api/clients"),
       ]);
       if (sRes.ok) { const d = await sRes.json(); if (d && !d.error) setSettings(d); }
       if (rRes.ok) { const d = await rRes.json(); if (d && !d.error) setRiepilogo(d); }
@@ -807,6 +857,7 @@ export default function Contabilita() {
       if (eRes.ok) { const d = await eRes.json(); if (Array.isArray(d)) setEntrate(d); }
       if (uRes.ok) { const d = await uRes.json(); if (Array.isArray(d)) setUscite(d); }
       if (pRes.ok) { const d = await pRes.json(); if (Array.isArray(d)) setPareggi(d); }
+      if (clRes.ok) { const d = await clRes.json(); if (Array.isArray(d)) setClients(d.map((c: any) => ({ id: c.id, name: c.name }))); }
     } catch (e) { console.error("fetchAll", e); }
     setLoading(false);
   }, [month, year]);
@@ -1019,24 +1070,39 @@ export default function Contabilita() {
             ) : (
               <div className="space-y-2">
                 {entrate.map(e => {
-                  const acc = e.fattura ? e.importo * (settings.forfettarioBase / 100) * (settings.accAntonamentoRate / 100) : 0;
+                  const accForf = e.fattura ? e.importo * (settings.forfettarioBase / 100) * (settings.accAntonamentoRate / 100) : 0;
+                  const accontoRic = e.acconto ?? 0;
+                  const saldoRic = e.saldoRicevuto ?? 0;
+                  const ricevuto = accontoRic + saldoRic;
+                  const residuo = e.importo - ricevuto;
+                  const saldato = residuo <= 0.01 && ricevuto > 0;
                   return (
                     <div key={e.id} className="bg-[#161616] border border-[rgba(255,255,255,0.06)] rounded-2xl p-4 flex items-center gap-4">
-                      <div className={`w-2 h-10 rounded-full flex-shrink-0 ${e.fattura ? "bg-[#F5A623]" : "bg-[#4CAF50]"}`} />
+                      <div className={`w-2 self-stretch rounded-full flex-shrink-0 ${saldato ? "bg-[#4CAF50]" : residuo < e.importo && ricevuto > 0 ? "bg-[#F5A623]" : e.fattura ? "bg-[#F5A623]" : "bg-[#4CAF50]"}`} />
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2 mb-1 flex-wrap">
                           <span className="text-sm font-medium text-[#f5f5f5] truncate">{e.descrizione}</span>
+                          {e.clientName && <span className="text-[10px] bg-[#1a2a1a] text-[#4CAF50] px-1.5 py-0.5 rounded-md font-medium truncate max-w-[120px]">{e.clientName}</span>}
                           {e.fattura && <span className="text-[10px] bg-[#F5A623]/20 text-[#F5A623] px-1.5 py-0.5 rounded-md font-medium">FATTURA</span>}
                           <span className="text-[10px] bg-[#222] text-[#888] px-1.5 py-0.5 rounded-md">{e.categoria}</span>
                           <span className="text-[10px] bg-[#222] text-[#888] px-1.5 py-0.5 rounded-md">{benefLabel(e.beneficiario)}</span>
                         </div>
-                        <div className="flex items-center gap-4 text-xs text-[#555]">
+                        <div className="flex items-center gap-3 text-xs text-[#555] flex-wrap">
                           <span>{new Date(e.data).toLocaleDateString("it-IT")}</span>
-                          {acc > 0 && <span className="text-[#F5A623]">Acc. {fmt(acc)}</span>}
-                          <span className="text-[#4CAF50]">Netto {fmt(e.importo - acc)}</span>
+                          {accontoRic > 0 && <span className="text-[#888]">Acc. <span className="text-[#f5f5f5]">{fmt(accontoRic)}</span></span>}
+                          {saldoRic > 0 && <span className="text-[#888]">Saldo <span className="text-[#f5f5f5]">{fmt(saldoRic)}</span></span>}
+                          {saldato
+                            ? <span className="text-[#4CAF50] font-semibold">Saldato ✓</span>
+                            : residuo > 0.01 && ricevuto > 0
+                              ? <span className="text-[#F5A623]">Da incassare {fmt(residuo)}</span>
+                              : null}
+                          {accForf > 0 && <span className="text-[#888]">Netto <span className="text-[#4CAF50]">{fmt(e.importo - accForf)}</span></span>}
                         </div>
                       </div>
-                      <div className="text-base font-bold text-[#f5f5f5] flex-shrink-0">{fmt(e.importo)}</div>
+                      <div className="text-right flex-shrink-0">
+                        <div className="text-base font-bold text-[#f5f5f5]">{fmt(e.importo)}</div>
+                        {ricevuto > 0 && ricevuto < e.importo && <div className="text-xs text-[#666]">{fmt(ricevuto)} ric.</div>}
+                      </div>
                       <div className="flex gap-1 flex-shrink-0">
                         <button onClick={() => setEditEntrata(e)} className="p-2 rounded-lg text-[#555] hover:text-[#F5A623] hover:bg-[#1a1a1a] transition-colors"><Pencil size={14} /></button>
                         <button onClick={() => deleteEntrata(e.id)} className="p-2 rounded-lg text-[#555] hover:text-[#ef4444] hover:bg-[#1a1a1a] transition-colors"><Trash2 size={14} /></button>
@@ -1093,7 +1159,7 @@ export default function Contabilita() {
 
       {(addEntrata || editEntrata) && (
         <Modal title={editEntrata ? "Modifica entrata" : "Nuova entrata"} onClose={() => { setAddEntrata(false); setEditEntrata(null); }}>
-          <EntrataForm initial={editEntrata ?? undefined} settings={settings} onSave={saveEntrata} onClose={() => { setAddEntrata(false); setEditEntrata(null); }} />
+          <EntrataForm initial={editEntrata ?? undefined} settings={settings} clients={clients} onSave={saveEntrata} onClose={() => { setAddEntrata(false); setEditEntrata(null); }} />
         </Modal>
       )}
 

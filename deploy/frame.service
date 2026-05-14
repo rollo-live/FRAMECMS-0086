@@ -1,0 +1,15 @@
+[Unit]
+Description=Frame Studios App
+After=network.target
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/opt/frame
+EnvironmentFile=/opt/frame/.env.production
+ExecStart=/usr/local/bin/bun run src/api/server.ts
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

@@ -257,6 +257,9 @@ export const entrate = sqliteTable("entrate", {
   tenantId: text("tenant_id").notNull().references(() => tenants.id),
   descrizione: text("descrizione").notNull(),
   importo: real("importo").notNull(),
+  acconto: real("acconto").default(0),           // acconto già ricevuto
+  saldoRicevuto: real("saldo_ricevuto").default(0), // saldo finale ricevuto
+  clientId: text("client_id").references(() => clients.id), // cliente opzionale
   beneficiario: text("beneficiario").notNull().default("split"), // "socio_a" | "socio_b" | "split"
   fattura: integer("fattura", { mode: "boolean" }).notNull().default(false),
   categoria: text("categoria").notNull().default("Altro"),

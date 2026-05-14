@@ -124,7 +124,28 @@ export const contabilita = new Hono()
       } else {
         whereClause = eq(schema.entrate.tenantId, tenantId);
       }
-      const rows = await db.select().from(schema.entrate).where(whereClause).orderBy(desc(schema.entrate.data));
+      const rows = await db
+        .select({
+          id: schema.entrate.id,
+          tenantId: schema.entrate.tenantId,
+          descrizione: schema.entrate.descrizione,
+          importo: schema.entrate.importo,
+          acconto: schema.entrate.acconto,
+          saldoRicevuto: schema.entrate.saldoRicevuto,
+          clientId: schema.entrate.clientId,
+          clientName: schema.clients.name,
+          beneficiario: schema.entrate.beneficiario,
+          fattura: schema.entrate.fattura,
+          categoria: schema.entrate.categoria,
+          note: schema.entrate.note,
+          data: schema.entrate.data,
+          createdAt: schema.entrate.createdAt,
+          updatedAt: schema.entrate.updatedAt,
+        })
+        .from(schema.entrate)
+        .leftJoin(schema.clients, eq(schema.entrate.clientId, schema.clients.id))
+        .where(whereClause)
+        .orderBy(desc(schema.entrate.data));
       return c.json(rows, 200);
     } catch (e) {
       console.error("[contabilita/entrate GET]", e);
@@ -144,13 +165,37 @@ export const contabilita = new Hono()
         tenantId,
         descrizione: String(body.descrizione),
         importo: Number(body.importo),
+        acconto: body.acconto != null ? Number(body.acconto) : 0,
+        saldoRicevuto: body.saldoRicevuto != null ? Number(body.saldoRicevuto) : 0,
+        clientId: body.clientId || null,
         beneficiario: body.beneficiario ?? "split",
         fattura: body.fattura === true || body.fattura === 1,
         categoria: body.categoria ?? "Altro",
         note: body.note || null,
         data: dataVal,
       });
-      const row = await db.select().from(schema.entrate).where(eq(schema.entrate.id, id)).get();
+      const row = await db
+        .select({
+          id: schema.entrate.id,
+          tenantId: schema.entrate.tenantId,
+          descrizione: schema.entrate.descrizione,
+          importo: schema.entrate.importo,
+          acconto: schema.entrate.acconto,
+          saldoRicevuto: schema.entrate.saldoRicevuto,
+          clientId: schema.entrate.clientId,
+          clientName: schema.clients.name,
+          beneficiario: schema.entrate.beneficiario,
+          fattura: schema.entrate.fattura,
+          categoria: schema.entrate.categoria,
+          note: schema.entrate.note,
+          data: schema.entrate.data,
+          createdAt: schema.entrate.createdAt,
+          updatedAt: schema.entrate.updatedAt,
+        })
+        .from(schema.entrate)
+        .leftJoin(schema.clients, eq(schema.entrate.clientId, schema.clients.id))
+        .where(eq(schema.entrate.id, id))
+        .get();
       return c.json(row, 201);
     } catch (e) {
       console.error("[contabilita/entrate POST]", e);
@@ -167,6 +212,9 @@ export const contabilita = new Hono()
       const updateData: Record<string, any> = { updatedAt: new Date() };
       if (body.descrizione !== undefined) updateData.descrizione = String(body.descrizione);
       if (body.importo !== undefined) updateData.importo = Number(body.importo);
+      if (body.acconto !== undefined) updateData.acconto = body.acconto != null ? Number(body.acconto) : 0;
+      if (body.saldoRicevuto !== undefined) updateData.saldoRicevuto = body.saldoRicevuto != null ? Number(body.saldoRicevuto) : 0;
+      if (body.clientId !== undefined) updateData.clientId = body.clientId || null;
       if (body.beneficiario !== undefined) updateData.beneficiario = body.beneficiario;
       if (body.fattura !== undefined) updateData.fattura = body.fattura === true || body.fattura === 1;
       if (body.categoria !== undefined) updateData.categoria = body.categoria;
@@ -174,7 +222,28 @@ export const contabilita = new Hono()
       if (body.data !== undefined) updateData.data = new Date(body.data);
       await db.update(schema.entrate).set(updateData)
         .where(and(eq(schema.entrate.id, id), eq(schema.entrate.tenantId, tenantId)));
-      const row = await db.select().from(schema.entrate).where(eq(schema.entrate.id, id)).get();
+      const row = await db
+        .select({
+          id: schema.entrate.id,
+          tenantId: schema.entrate.tenantId,
+          descrizione: schema.entrate.descrizione,
+          importo: schema.entrate.importo,
+          acconto: schema.entrate.acconto,
+          saldoRicevuto: schema.entrate.saldoRicevuto,
+          clientId: schema.entrate.clientId,
+          clientName: schema.clients.name,
+          beneficiario: schema.entrate.beneficiario,
+          fattura: schema.entrate.fattura,
+          categoria: schema.entrate.categoria,
+          note: schema.entrate.note,
+          data: schema.entrate.data,
+          createdAt: schema.entrate.createdAt,
+          updatedAt: schema.entrate.updatedAt,
+        })
+        .from(schema.entrate)
+        .leftJoin(schema.clients, eq(schema.entrate.clientId, schema.clients.id))
+        .where(eq(schema.entrate.id, id))
+        .get();
       return c.json(row, 200);
     } catch (e) {
       console.error("[contabilita/entrate PATCH]", e);
