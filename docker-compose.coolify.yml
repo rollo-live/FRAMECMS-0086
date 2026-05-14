@@ -1,0 +1,25 @@
+# Questo file è per reference/test locale.
+# Su Coolify: crea una "Docker Compose" app e incolla questo contenuto,
+# oppure usa "Dockerfile" app puntando al repo GitHub.
+
+services:
+  frame:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      NODE_ENV: production
+      PORT: 8080
+      # Tutte le altre variabili le imposti nell'UI Coolify → Environment Variables
+      # Non metterle mai hardcoded qui
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8080/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+    labels:
+      - coolify.managed=true

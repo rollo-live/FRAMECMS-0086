@@ -1,0 +1,26 @@
+# Git
+.git
+.gitignore
+
+# Deps (reinstalled inside container)
+node_modules
+packages/*/node_modules
+
+# Mobile & Desktop (not needed for server)
+packages/mobile
+packages/desktop
+
+# Dev artifacts
+packages/web/dist
+**/.turbo
+**/*.log
+
+# Secrets — NEVER bake into image
+.env
+.env.*
+!.env.example
+
+# Misc
+README.md
+*.zip
+history/
