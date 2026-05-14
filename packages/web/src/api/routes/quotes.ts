@@ -6,6 +6,7 @@ import { requireAuth } from "../middleware/auth";
 import { nanoid } from "../lib/id";
 import { sendQuoteEmail } from "../lib/email";
 import { generateQuotePdf } from "../lib/pdf";
+import { validateBody, QuoteSchema, QuoteUpdateSchema } from "../lib/validate";
 
 async function getTenantId(userId: string) {
   const p = await db.select().from(schema.userProfiles).where(eq(schema.userProfiles.userId, userId)).get();
@@ -33,7 +34,8 @@ export const quotes = new Hono()
     const user = c.get("user")!;
     const tenantId = await getTenantId(user.id);
     if (!tenantId) return c.json({ error: "Nessun tenant" }, 400);
-    const body = await c.req.json();
+    const body = await validateBody(c, QuoteSchema);
+    if (!body) return c.res;
     const count = await db.select().from(schema.quotes).where(eq(schema.quotes.tenantId, tenantId)).all();
     const number = `PRV-${new Date().getFullYear()}-${String(count.length + 1).padStart(3, "0")}`;
     const items = body.items ?? [];
@@ -72,7 +74,8 @@ export const quotes = new Hono()
     const user = c.get("user")!;
     const tenantId = await getTenantId(user.id);
     if (!tenantId) return c.json({ error: "Non trovato" }, 404);
-    const body = await c.req.json();
+    const body = await validateBody(c, QuoteUpdateSchema);
+    if (!body) return c.res;
     const items = body.items ?? [];
     const taxRate = body.taxRate ?? 22;
     const { subtotal, total } = calcTotals(items, taxRate);

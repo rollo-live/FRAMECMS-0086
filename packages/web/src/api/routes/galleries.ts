@@ -3,6 +3,7 @@ import { db } from "../database";
 import * as schema from "../database/schema";
 import { eq, and, desc, asc, count, inArray, sql } from "drizzle-orm";
 import { requireAuth } from "../middleware/auth";
+import { galleryAccessRateLimit } from "../middleware/rate-limit";
 import { nanoid } from "../lib/id";
 import { getPresignedUploadUrl, getPresignedGetUrl, deleteObject } from "../lib/s3";
 import { detectFaces, cosineSimilarity, averageEmbeddings, FACE_MATCH_THRESHOLD } from "../lib/face-detection";
@@ -111,7 +112,7 @@ export const galleries = new Hono()
   })
 
   // ── PUBLIC: request access ────────────────────────────────────────────────
-  .post("/shared/:token/access", async (c) => {
+  .post("/shared/:token/access", galleryAccessRateLimit, async (c) => {
     const gallery = await db.select().from(schema.galleries)
       .where(eq(schema.galleries.shareToken, c.req.param("token"))).get();
     if (!gallery) return c.json({ error: "Gallery non trovata" }, 404);
@@ -177,32 +178,50 @@ export const galleries = new Hono()
       visitorId = body.visitorId ?? c.req.header("x-visitor-id") ?? "anon";
     }
 
-    const likes: string[] = JSON.parse(photo.likes || "[]");
-    const idx = likes.indexOf(visitorId);
+    // Wrap read-modify-write in a transaction to avoid race conditions
+    type LikeResult = { liked: boolean; likeCount: number; updated: typeof photo };
+    const result = await db.transaction(async (tx) => {
+      // Re-read inside transaction for freshest state
+      const freshPhoto = await tx.select().from(schema.photos)
+        .where(eq(schema.photos.id, photo.id)).get();
+      if (!freshPhoto) throw new Error("Foto non trovata");
 
-    if (idx === -1 && gallery.likeLimit > 0) {
-      const allPhotos = await db.select().from(schema.photos)
-        .where(eq(schema.photos.galleryId, gallery.id)).all();
-      const totalLikes = allPhotos.reduce((count, p) => {
-        const pl: string[] = JSON.parse(p.likes || "[]");
-        return count + (pl.includes(visitorId) ? 1 : 0);
-      }, 0);
-      if (totalLikes >= gallery.likeLimit) {
-        return c.json({ error: "Limite like raggiunto", limitReached: true }, 400);
+      const likes: string[] = JSON.parse(freshPhoto.likes || "[]");
+      const idx = likes.indexOf(visitorId);
+
+      if (idx === -1 && gallery.likeLimit > 0) {
+        const allPhotos = await tx.select().from(schema.photos)
+          .where(eq(schema.photos.galleryId, gallery.id)).all();
+        const totalLikes = allPhotos.reduce((n, p) => {
+          const pl: string[] = JSON.parse(p.likes || "[]");
+          return n + (pl.includes(visitorId) ? 1 : 0);
+        }, 0);
+        if (totalLikes >= gallery.likeLimit) {
+          throw Object.assign(new Error("Limite like raggiunto"), { limitReached: true, status: 400 });
+        }
       }
+
+      if (idx === -1) likes.push(visitorId);
+      else likes.splice(idx, 1);
+
+      const [updated] = await tx.update(schema.photos)
+        .set({ likes: JSON.stringify(likes) })
+        .where(eq(schema.photos.id, freshPhoto.id)).returning();
+
+      return { liked: idx === -1, likeCount: likes.length, updated } as LikeResult;
+    }).catch((err: any) => {
+      if (err?.limitReached) return { limitReached: true, error: err.message } as any;
+      throw err;
+    });
+
+    if ((result as any).limitReached) {
+      return c.json({ error: (result as any).error, limitReached: true }, 400);
     }
-
-    if (idx === -1) likes.push(visitorId);
-    else likes.splice(idx, 1);
-
-    const [updated] = await db.update(schema.photos)
-      .set({ likes: JSON.stringify(likes) })
-      .where(eq(schema.photos.id, photo.id)).returning();
-
+    const { liked, likeCount, updated } = result as LikeResult;
     return c.json({
-      liked: idx === -1,
-      likeCount: likes.length,
-      photo: { ...updated, likeCount: likes.length, likedByMe: idx === -1 },
+      liked,
+      likeCount,
+      photo: { ...updated, likeCount, likedByMe: liked },
     }, 200);
   })
 

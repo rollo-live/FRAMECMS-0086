@@ -3,6 +3,7 @@ import { db } from "../database";
 import * as schema from "../database/schema";
 import { eq, and, desc, count } from "drizzle-orm";
 import { requireAuth } from "../middleware/auth";
+import { bookingRateLimit } from "../middleware/rate-limit";
 import { nanoid } from "../lib/id";
 import {
   getAuthUrl,
@@ -17,6 +18,20 @@ import {
   sendBookingConfirmation,
   sendBookingRejection,
 } from "../lib/email";
+import { validateBody } from "../lib/validate";
+import { z } from "zod/v4";
+
+const BookingRequestSchema = z.object({
+  clientName: z.string().min(1, "Nome cliente obbligatorio").max(255),
+  clientEmail: z.string().email("Email non valida"),
+  clientPhone: z.string().max(50).optional().nullable(),
+  eventType: z.string().min(1).max(100),
+  eventTypeCustom: z.string().max(200).optional().nullable(),
+  eventDate: z.string().min(1, "Data evento obbligatoria"),
+  eventLocation: z.string().max(500).optional().nullable(),
+  services: z.array(z.string()).optional(),
+  notes: z.string().max(2000).optional().nullable(),
+});
 
 // ─── Duration map (hours) ────────────────────────────────────────────────────
 const EVENT_DURATION: Record<string, number> = {
@@ -38,7 +53,12 @@ const EVENT_TYPE_LABELS: Record<string, string> = {
   altro: "Altro",
 };
 
-async function getTenantIdForUser(userId: string) {
+async function getTenantIdForUser(userId: string, c?: any): Promise<string | null> {
+  // Use request-scoped cached value if available (set by requireAuth middleware)
+  if (c) {
+    const cached = c.get?.("tenantId");
+    if (cached !== undefined) return cached ?? null;
+  }
   const p = await db
     .select()
     .from(schema.userProfiles)
@@ -110,7 +130,7 @@ export const bookings = new Hono()
   })
 
   // ─── PUBLIC: Submit booking request ──────────────────────────────────────
-  .post("/public/:tenantSlug/request", async (c) => {
+  .post("/public/:tenantSlug/request", bookingRateLimit, async (c) => {
     const { tenantSlug } = c.req.param();
 
     const tenant = await db
@@ -120,11 +140,8 @@ export const bookings = new Hono()
       .get();
     if (!tenant) return c.json({ error: "Tenant non trovato" }, 404);
 
-    const body = await c.req.json();
-
-    if (!body.clientName || !body.clientEmail || !body.eventType || !body.eventDate) {
-      return c.json({ error: "Campi obbligatori mancanti" }, 400);
-    }
+    const body = await validateBody(c, BookingRequestSchema);
+    if (!body) return c.res;
 
     const bookingToken = nanoid(32);
     const id = nanoid();
@@ -170,7 +187,7 @@ export const bookings = new Hono()
   // ─── PRIVATE: List appointments ───────────────────────────────────────────
   .get("/", requireAuth, async (c) => {
     const user = c.get("user")!;
-    const tenantId = await getTenantIdForUser(user.id);
+    const tenantId = await getTenantIdForUser(user.id, c);
     if (!tenantId) return c.json({ appointments: [], pendingCount: 0 }, 200);
 
     const status = c.req.query("status"); // optional filter
@@ -204,7 +221,7 @@ export const bookings = new Hono()
   // ─── PRIVATE: Pending count (for badge) ──────────────────────────────────
   .get("/pending-count", requireAuth, async (c) => {
     const user = c.get("user")!;
-    const tenantId = await getTenantIdForUser(user.id);
+    const tenantId = await getTenantIdForUser(user.id, c);
     if (!tenantId) return c.json({ count: 0 }, 200);
 
     const rows = await db
@@ -223,7 +240,7 @@ export const bookings = new Hono()
   // ─── PRIVATE: Single appointment ─────────────────────────────────────────
   .get("/:id", requireAuth, async (c) => {
     const user = c.get("user")!;
-    const tenantId = await getTenantIdForUser(user.id);
+    const tenantId = await getTenantIdForUser(user.id, c);
     if (!tenantId) return c.json({ error: "Non trovato" }, 404);
 
     const appt = await db
@@ -262,7 +279,7 @@ export const bookings = new Hono()
       return c.json({ error: "Non autorizzato" }, 401);
     }
     if (user) {
-      const tenantId = await getTenantIdForUser(user.id);
+      const tenantId = await getTenantIdForUser(user.id, c);
       if (tenantId !== appt.tenantId) return c.json({ error: "Non autorizzato" }, 403);
     }
 
@@ -356,7 +373,7 @@ export const bookings = new Hono()
       return c.json({ error: "Non autorizzato" }, 401);
     }
     if (user) {
-      const tenantId = await getTenantIdForUser(user.id);
+      const tenantId = await getTenantIdForUser(user.id, c);
       if (tenantId !== appt.tenantId) return c.json({ error: "Non autorizzato" }, 403);
     }
 
@@ -390,7 +407,7 @@ export const bookings = new Hono()
   // ─── PRIVATE: Delete ──────────────────────────────────────────────────────
   .delete("/:id", requireAuth, async (c) => {
     const user = c.get("user")!;
-    const tenantId = await getTenantIdForUser(user.id);
+    const tenantId = await getTenantIdForUser(user.id, c);
     if (!tenantId) return c.json({ error: "Non trovato" }, 404);
 
     const appt = await db
@@ -417,7 +434,7 @@ export const bookings = new Hono()
   // ─── PRIVATE: Google OAuth — start ───────────────────────────────────────
   .get("/oauth/connect", requireAuth, async (c) => {
     const user = c.get("user")!;
-    const tenantId = await getTenantIdForUser(user.id);
+    const tenantId = await getTenantIdForUser(user.id, c);
     if (!tenantId) return c.json({ error: "Tenant non trovato" }, 400);
 
     const url = getAuthUrl(tenantId);
@@ -448,7 +465,7 @@ export const bookings = new Hono()
   // ─── PRIVATE: Google Calendar status ─────────────────────────────────────
   .get("/oauth/status", requireAuth, async (c) => {
     const user = c.get("user")!;
-    const tenantId = await getTenantIdForUser(user.id);
+    const tenantId = await getTenantIdForUser(user.id, c);
     if (!tenantId) return c.json({ connected: false }, 200);
 
     const connected = await isCalendarConnected(tenantId);
@@ -458,7 +475,7 @@ export const bookings = new Hono()
   // ─── PRIVATE: Google Calendar disconnect ─────────────────────────────────
   .delete("/oauth/disconnect", requireAuth, async (c) => {
     const user = c.get("user")!;
-    const tenantId = await getTenantIdForUser(user.id);
+    const tenantId = await getTenantIdForUser(user.id, c);
     if (!tenantId) return c.json({ error: "Tenant non trovato" }, 400);
 
     await db

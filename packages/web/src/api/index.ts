@@ -20,7 +20,18 @@ import * as schema from "./database/schema";
 import { and, eq } from "drizzle-orm";
 
 const app = new Hono()
-  .use(cors({ origin: "*", credentials: true }))
+  .use(cors({
+    origin: (origin) => {
+      const allowed = [
+        process.env.WEBSITE_URL,
+        process.env.APP_URL,
+        "http://localhost:4200",
+        "http://localhost:3000",
+      ].filter(Boolean) as string[];
+      return allowed.includes(origin) ? origin : allowed[0] ?? origin;
+    },
+    credentials: true,
+  }))
   // Block open sign-up: only allow registration with a valid invite token
   .post("/api/auth/sign-up/email", async (c, next) => {
     try {

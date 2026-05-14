@@ -4,6 +4,7 @@ import * as schema from "../database/schema";
 import { eq, and, gte, lte, desc } from "drizzle-orm";
 import { nanoid } from "../lib/id";
 import { requireAuth } from "../middleware/auth";
+import { validateBody, EntrataSchema, EntrataUpdateSchema } from "../lib/validate";
 
 /**
  * Ritorna il tenantId dell'utente.
@@ -157,7 +158,8 @@ export const contabilita = new Hono()
     try {
       const user = c.get("user")!;
       const tenantId = await getTenantId(user.id, { name: user.name, email: user.email });
-      const body = await c.req.json();
+      const body = await validateBody(c, EntrataSchema);
+      if (!body) return c.res;
       const id = nanoid();
       const dataVal = body.data ? new Date(body.data) : new Date();
       await db.insert(schema.entrate).values({
@@ -208,7 +210,8 @@ export const contabilita = new Hono()
       const user = c.get("user")!;
       const tenantId = await getTenantId(user.id, { name: user.name, email: user.email });
       const { id } = c.req.param();
-      const body = await c.req.json();
+      const body = await validateBody(c, EntrataUpdateSchema);
+      if (!body) return c.res;
       const updateData: Record<string, any> = { updatedAt: new Date() };
       if (body.descrizione !== undefined) updateData.descrizione = String(body.descrizione);
       if (body.importo !== undefined) updateData.importo = Number(body.importo);

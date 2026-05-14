@@ -12,7 +12,12 @@ export const auth = betterAuth({
   database: drizzleAdapter(db, { provider: "sqlite" }),
   emailAndPassword: { enabled: true },
   secret: process.env.BETTER_AUTH_SECRET,
-  trustedOrigins: ["*"],
+  trustedOrigins: [
+    process.env.WEBSITE_URL ?? "http://localhost:4200",
+    process.env.APP_URL ?? "http://localhost:4200",
+    "http://localhost:4200",
+    "http://localhost:3000",
+  ].filter(Boolean) as string[],
   plugins: [autumn()],
   databaseHooks: {
     user: {

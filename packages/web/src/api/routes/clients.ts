@@ -5,6 +5,7 @@ import { eq, and, desc } from "drizzle-orm";
 import { requireAuth } from "../middleware/auth";
 import { nanoid } from "../lib/id";
 import { sendPortalAccessEmail } from "../lib/email";
+import { validateBody, ClientSchema, ClientUpdateSchema } from "../lib/validate";
 
 async function getTenantId(userId: string) {
   const p = await db.select().from(schema.userProfiles).where(eq(schema.userProfiles.userId, userId)).get();
@@ -25,7 +26,8 @@ export const clients = new Hono()
     const user = c.get("user")!;
     const tenantId = await getTenantId(user.id);
     if (!tenantId) return c.json({ error: "Nessun tenant" }, 400);
-    const body = await c.req.json();
+    const body = await validateBody(c, ClientSchema);
+    if (!body) return c.res;
     const [client] = await db.insert(schema.clients).values({
       id: nanoid(),
       tenantId,
@@ -52,7 +54,8 @@ export const clients = new Hono()
     const user = c.get("user")!;
     const tenantId = await getTenantId(user.id);
     if (!tenantId) return c.json({ error: "Non trovato" }, 404);
-    const body = await c.req.json();
+    const body = await validateBody(c, ClientUpdateSchema);
+    if (!body) return c.res;
     const [client] = await db.update(schema.clients).set({
       name: body.name,
       email: body.email,

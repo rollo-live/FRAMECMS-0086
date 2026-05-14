@@ -4,14 +4,15 @@ import * as schema from "../database/schema";
 import { eq, and } from "drizzle-orm";
 import { requireAuth } from "../middleware/auth";
 import { nanoid } from "../lib/id";
-import { execSync } from "child_process";
+import { sendEmail } from "../lib/email";
+import { validateBody, InviteSchema } from "../lib/validate";
 
 async function getTenantId(userId: string) {
   const p = await db.select().from(schema.userProfiles).where(eq(schema.userProfiles.userId, userId)).get();
   return p?.tenantId ?? null;
 }
 
-function sendInviteEmail(email: string, inviterName: string, tenantName: string, token: string) {
+async function sendInviteEmail(email: string, inviterName: string, tenantName: string, token: string) {
   const link = `${process.env.APP_URL ?? "http://localhost:4200"}/accept-invite?token=${token}`;
   const html = `
     <div style="font-family:sans-serif;max-width:480px;margin:auto;padding:32px;background:#0a0a0a;color:#f5f5f5;border-radius:12px">
@@ -22,12 +23,9 @@ function sendInviteEmail(email: string, inviterName: string, tenantName: string,
       <p style="margin-top:16px;font-size:12px;color:#555">Il link scade tra 7 giorni.</p>
     </div>`;
   try {
-    execSync(`send-email --to "${email}" --subject "Iscriviti al portale Frame" --html -`, {
-      input: html,
-      encoding: "utf8",
-    });
+    await sendEmail({ to: email, subject: "Iscriviti al portale Frame", html });
   } catch (e) {
-    console.error("send-email failed", e);
+    console.error("sendInviteEmail failed", e);
   }
 }
 
@@ -67,9 +65,9 @@ export const team = new Hono()
     const tenantId = await getTenantId(user.id);
     if (!tenantId) return c.json({ error: "Nessun tenant" }, 400);
 
-    const body = await c.req.json();
+    const body = await validateBody(c, InviteSchema);
+    if (!body) return c.res;
     const { email, role = "staff" } = body;
-    if (!email) return c.json({ error: "Email mancante" }, 400);
 
     // Controlla se già membro
     const existing = await db.select().from(schema.user).where(eq(schema.user.email, email)).get();
@@ -104,13 +102,13 @@ export const team = new Hono()
     const tenant = await db.select().from(schema.tenants).where(eq(schema.tenants.id, tenantId)).get();
     const inviterUser = await db.select().from(schema.user).where(eq(schema.user.id, user.id)).get();
 
-    // Invia email in background
+    // Invia email in background (non bloccare la risposta)
     sendInviteEmail(
       email,
       inviterUser?.name ?? "Il tuo collega",
       tenant?.name ?? "FRAME",
       token
-    );
+    ).catch((e) => console.error("sendInviteEmail background error", e));
 
     return c.json({ invite }, 201);
   })
