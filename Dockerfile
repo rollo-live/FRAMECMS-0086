@@ -1,49 +1,63 @@
 # ─── Stage 1: Build React frontend ───────────────────────────────────────────
-FROM oven/bun:1.3.5-alpine AS builder
+FROM oven/bun:1.3.5-debian AS builder
 
 WORKDIR /app
 
-# Copy package files first (layer cache)
-COPY package.json bun.lockb ./
+# Copy root workspace manifests
+COPY package.json bun.lock ./
+
+# Copy web package manifest
 COPY packages/web/package.json ./packages/web/
-# Stub other workspaces so bun install doesn't fail
+
+# Stub mobile & desktop so workspace install doesn't fail
 RUN mkdir -p packages/mobile packages/desktop \
   && echo '{"name":"mobile","version":"0.0.0"}' > packages/mobile/package.json \
   && echo '{"name":"desktop","version":"0.0.0"}' > packages/desktop/package.json
 
-# Install ALL deps (including devDeps needed for build)
+# Install all deps (dev included — needed for vite build)
 RUN bun install --frozen-lockfile
 
-# Copy source
+# Copy web source
 COPY packages/web ./packages/web
 
-# Build Vite frontend (outputs to packages/web/dist)
+# Build Vite frontend
 WORKDIR /app/packages/web
 RUN bun run build
 
-# ─── Stage 2: Production image ────────────────────────────────────────────────
-FROM oven/bun:1.3.5-alpine AS runner
+# ─── Stage 2: Production runtime ─────────────────────────────────────────────
+FROM oven/bun:1.3.5-debian AS runner
+
+# Install native lib deps for sharp + tensorflow
+RUN apt-get update && apt-get install -y --no-install-recommends \
+  libvips-dev \
+  python3 \
+  make \
+  g++ \
+  && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
-# Only copy what's needed at runtime
-COPY package.json bun.lockb ./
+# Copy workspace manifests
+COPY package.json bun.lock ./
 COPY packages/web/package.json ./packages/web/
+
+# Stub unused workspaces
 RUN mkdir -p packages/mobile packages/desktop \
   && echo '{"name":"mobile","version":"0.0.0"}' > packages/mobile/package.json \
   && echo '{"name":"desktop","version":"0.0.0"}' > packages/desktop/package.json
 
-# Install production deps only
+# Install production deps (includes native module compilation)
 RUN bun install --frozen-lockfile --production
 
-# Copy API source (Bun runs TS directly — no compile needed)
+# Copy API source (Bun runs TS directly)
 COPY packages/web/src ./packages/web/src
 
 # Copy built frontend from builder stage
 COPY --from=builder /app/packages/web/dist ./packages/web/dist
 
-# Non-root user for security
-RUN addgroup -S frame && adduser -S frame -G frame
+# Non-root user
+RUN groupadd -r frame && useradd -r -g frame frame \
+  && chown -R frame:frame /app
 USER frame
 
 WORKDIR /app/packages/web

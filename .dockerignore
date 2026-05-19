@@ -6,7 +6,7 @@
 node_modules
 packages/*/node_modules
 
-# Mobile & Desktop (not needed for server)
+# Mobile & Desktop source (stubbati nel Dockerfile)
 packages/mobile
 packages/desktop
 
@@ -24,3 +24,5 @@ packages/web/dist
 README.md
 *.zip
 history/
+.vscode/
+docker-compose.coolify.yml
