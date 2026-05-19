@@ -1,6 +1,27 @@
 import { Hono } from "hono";
-import { join } from "path";
+import { join, extname } from "path";
 import app from "./index";
+
+const MIME_TYPES: Record<string, string> = {
+  ".js": "application/javascript",
+  ".mjs": "application/javascript",
+  ".css": "text/css",
+  ".html": "text/html",
+  ".json": "application/json",
+  ".png": "image/png",
+  ".jpg": "image/jpeg",
+  ".jpeg": "image/jpeg",
+  ".svg": "image/svg+xml",
+  ".ico": "image/x-icon",
+  ".woff": "font/woff",
+  ".woff2": "font/woff2",
+  ".ttf": "font/ttf",
+  ".webp": "image/webp",
+};
+
+function getMimeType(pathname: string): string {
+  return MIME_TYPES[extname(pathname).toLowerCase()] ?? "application/octet-stream";
+}
 
 const port = Number(process.env.PORT) || 8080;
 const distDir = join(import.meta.dir, "../../dist");
@@ -16,7 +37,9 @@ const server = new Hono()
     const filePath = join(distDir, pathname);
     const file = Bun.file(filePath);
     if (await file.exists()) {
-      return new Response(file);
+      return new Response(file, {
+        headers: { "Content-Type": getMimeType(pathname) },
+      });
     }
 
     // Fall back to index.html for client-side routing
