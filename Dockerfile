@@ -15,7 +15,7 @@ RUN mkdir -p packages/mobile packages/desktop \
   && echo '{"name":"desktop","version":"0.0.0"}' > packages/desktop/package.json
 
 # Install all deps (dev included — needed for vite build)
-RUN bun install --frozen-lockfile
+RUN bun install
 
 # Copy web source
 COPY packages/web ./packages/web
@@ -47,7 +47,7 @@ RUN mkdir -p packages/mobile packages/desktop \
   && echo '{"name":"desktop","version":"0.0.0"}' > packages/desktop/package.json
 
 # Install production deps (includes native module compilation)
-RUN bun install --frozen-lockfile --production
+RUN bun install --production
 
 # Copy API source (Bun runs TS directly)
 COPY packages/web/src ./packages/web/src
