@@ -47,7 +47,7 @@ RUN mkdir -p packages/mobile packages/desktop \
   && echo '{"name":"desktop","version":"0.0.0"}' > packages/desktop/package.json
 
 # Install production deps (includes native module compilation)
-RUN bun install --production
+RUN bun install --production --no-frozen-lockfile
 
 # Copy API source (Bun runs TS directly)
 COPY packages/web/src ./packages/web/src
