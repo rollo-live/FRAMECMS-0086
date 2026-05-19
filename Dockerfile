@@ -1,6 +1,9 @@
 # ─── Stage 1: Build React frontend ───────────────────────────────────────────
 FROM oven/bun:1.3.5-debian AS builder
 
+# Override any injected frozen-lockfile setting
+ENV BUN_CONFIG_FROZEN_LOCKFILE=false
+
 WORKDIR /app
 
 # Copy root workspace manifests
@@ -26,6 +29,9 @@ RUN bun run build
 
 # ─── Stage 2: Production runtime ─────────────────────────────────────────────
 FROM oven/bun:1.3.5-debian AS runner
+
+# Override any injected frozen-lockfile setting
+ENV BUN_CONFIG_FROZEN_LOCKFILE=false
 
 # Install native lib deps for sharp + tensorflow
 RUN apt-get update && apt-get install -y --no-install-recommends \
