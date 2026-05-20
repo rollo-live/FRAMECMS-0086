@@ -21,6 +21,7 @@ const Impostazioni = lazy(() => import("./pages/impostazioni"));
 const Prenotazioni = lazy(() => import("./pages/prenotazioni"));
 const Contabilita = lazy(() => import("./pages/contabilita"));
 const Booking = lazy(() => import("./pages/booking"));
+const BookingChannel = lazy(() => import("./pages/booking-channel"));
 
 // Public pages
 const AcceptInvite = lazy(() => import("./pages/accept-invite"));
@@ -83,6 +84,7 @@ function App() {
         <Route path="/portale/video/:token" element={<PortaleVideo />} />
         <Route path="/portale/:token" element={<Portale />} />
         <Route path="/booking/:tenantSlug" element={<Booking />} />
+        <Route path="/prenota/:channelSlug" element={<BookingChannel />} />
 
         {/* Onboarding (requires auth but no sidebar) */}
         <Route

@@ -93,7 +93,7 @@ const APP_URL = process.env.APP_URL ?? "http://localhost:4200";
 
 export const bookings = new Hono()
 
-  // ─── PUBLIC: Get busy slots for a tenant ─────────────────────────────────
+  // ─── PUBLIC: Get busy slots for a tenant (legacy) ────────────────────────
   .get("/public/:tenantSlug/busy", async (c) => {
     const { tenantSlug } = c.req.param();
     const { from, to } = c.req.query();
@@ -110,16 +110,10 @@ export const bookings = new Hono()
 
     const busy = await getBusySlots(tenant.id, timeMin, timeMax);
 
-    // Also add approved appointments as busy
     const approved = await db
       .select()
       .from(schema.appointments)
-      .where(
-        and(
-          eq(schema.appointments.tenantId, tenant.id),
-          eq(schema.appointments.status, "approved")
-        )
-      );
+      .where(and(eq(schema.appointments.tenantId, tenant.id), eq(schema.appointments.status, "approved")));
 
     const approvedBusy = approved.map((a) => ({
       start: a.eventDate.toISOString(),
@@ -129,7 +123,7 @@ export const bookings = new Hono()
     return c.json({ busy: [...busy, ...approvedBusy] }, 200);
   })
 
-  // ─── PUBLIC: Submit booking request ──────────────────────────────────────
+  // ─── PUBLIC: Submit booking request (legacy — via tenantSlug) ────────────
   .post("/public/:tenantSlug/request", bookingRateLimit, async (c) => {
     const { tenantSlug } = c.req.param();
 
@@ -162,7 +156,6 @@ export const bookings = new Hono()
       bookingToken,
     });
 
-    // Notify owner via email
     const ownerEmail = await getOwnerEmail(tenant.id);
     if (ownerEmail) {
       await sendOwnerNotification({
@@ -178,8 +171,106 @@ export const bookings = new Hono()
         notes: body.notes ?? null,
         approveUrl: `${APP_URL}/api/bookings/${id}/approve?token=${bookingToken}`,
         rejectUrl: `${APP_URL}/api/bookings/${id}/reject?token=${bookingToken}`,
+        channelName: tenant.name,
       }).catch(console.error);
     }
+
+    return c.json({ success: true, bookingToken }, 201);
+  })
+
+  // ─── PUBLIC: Get channel info (branding) ──────────────────────────────────
+  .get("/channel/:channelSlug", async (c) => {
+    const { channelSlug } = c.req.param();
+    const channel = await db.select().from(schema.bookingChannels)
+      .where(eq(schema.bookingChannels.slug, channelSlug)).get();
+    if (!channel || !channel.active) return c.json({ error: "Link non trovato" }, 404);
+    // Ritorna solo info pubbliche (no email interne)
+    return c.json({
+      channel: {
+        id: channel.id,
+        name: channel.name,
+        slug: channel.slug,
+        logo: channel.logo,
+        primaryColor: channel.primaryColor,
+        description: channel.description,
+      }
+    }, 200);
+  })
+
+  // ─── PUBLIC: Get busy slots via channel slug ──────────────────────────────
+  .get("/channel/:channelSlug/busy", async (c) => {
+    const { channelSlug } = c.req.param();
+    const { from, to } = c.req.query();
+
+    const channel = await db.select().from(schema.bookingChannels)
+      .where(eq(schema.bookingChannels.slug, channelSlug)).get();
+    if (!channel || !channel.active) return c.json({ error: "Link non trovato" }, 404);
+
+    const timeMin = from ? new Date(from) : new Date();
+    const timeMax = to ? new Date(to) : new Date(Date.now() + 90 * 24 * 3600 * 1000);
+
+    const busy = await getBusySlots(channel.tenantId, timeMin, timeMax);
+
+    const approved = await db
+      .select()
+      .from(schema.appointments)
+      .where(and(eq(schema.appointments.tenantId, channel.tenantId), eq(schema.appointments.status, "approved")));
+
+    const approvedBusy = approved.map((a) => ({
+      start: a.eventDate.toISOString(),
+      end: getEventEnd(a.eventDate, a.eventType).toISOString(),
+    }));
+
+    return c.json({ busy: [...busy, ...approvedBusy] }, 200);
+  })
+
+  // ─── PUBLIC: Submit booking request via channel slug ─────────────────────
+  .post("/channel/:channelSlug/request", bookingRateLimit, async (c) => {
+    const { channelSlug } = c.req.param();
+
+    const channel = await db.select().from(schema.bookingChannels)
+      .where(eq(schema.bookingChannels.slug, channelSlug)).get();
+    if (!channel || !channel.active) return c.json({ error: "Link non trovato" }, 404);
+
+    const body = await validateBody(c, BookingRequestSchema);
+    if (!body) return c.res;
+
+    const bookingToken = nanoid(32);
+    const id = nanoid();
+    const eventDate = new Date(body.eventDate);
+
+    await db.insert(schema.appointments).values({
+      id,
+      tenantId: channel.tenantId,
+      channelId: channel.id,
+      clientName: body.clientName,
+      clientEmail: body.clientEmail,
+      clientPhone: body.clientPhone ?? null,
+      eventType: body.eventType,
+      eventTypeCustom: body.eventTypeCustom ?? null,
+      services: JSON.stringify(body.services ?? []),
+      eventDate,
+      eventLocation: body.eventLocation ?? null,
+      notes: body.notes ?? null,
+      bookingToken,
+    });
+
+    // Notifica all'email configurata nel channel
+    await sendOwnerNotification({
+      ownerEmail: channel.notifyEmail,
+      clientName: body.clientName,
+      clientEmail: body.clientEmail,
+      clientPhone: body.clientPhone ?? null,
+      eventType: body.eventType,
+      eventTypeCustom: body.eventTypeCustom ?? null,
+      services: body.services ?? [],
+      eventDate,
+      eventLocation: body.eventLocation ?? null,
+      notes: body.notes ?? null,
+      approveUrl: `${APP_URL}/api/bookings/${id}/approve?token=${bookingToken}`,
+      rejectUrl: `${APP_URL}/api/bookings/${id}/reject?token=${bookingToken}`,
+      channelName: channel.name,
+    }).catch(console.error);
 
     return c.json({ success: true, bookingToken }, 201);
   })
@@ -190,22 +281,43 @@ export const bookings = new Hono()
     const tenantId = await getTenantIdForUser(user.id, c);
     if (!tenantId) return c.json({ appointments: [], pendingCount: 0 }, 200);
 
-    const status = c.req.query("status"); // optional filter
+    const status = c.req.query("status");
+    const channelId = c.req.query("channelId"); // filtro per brand
 
-    let query = db
-      .select()
+    const conditions = [eq(schema.appointments.tenantId, tenantId)];
+    if (status) conditions.push(eq(schema.appointments.status, status));
+    if (channelId === "none") {
+      conditions.push(eq(schema.appointments.channelId, null as any));
+    } else if (channelId) {
+      conditions.push(eq(schema.appointments.channelId, channelId));
+    }
+
+    const all = await db
+      .select({
+        id: schema.appointments.id,
+        tenantId: schema.appointments.tenantId,
+        channelId: schema.appointments.channelId,
+        channelName: schema.bookingChannels.name,
+        channelColor: schema.bookingChannels.primaryColor,
+        clientName: schema.appointments.clientName,
+        clientEmail: schema.appointments.clientEmail,
+        clientPhone: schema.appointments.clientPhone,
+        eventType: schema.appointments.eventType,
+        eventTypeCustom: schema.appointments.eventTypeCustom,
+        services: schema.appointments.services,
+        eventDate: schema.appointments.eventDate,
+        eventLocation: schema.appointments.eventLocation,
+        notes: schema.appointments.notes,
+        status: schema.appointments.status,
+        bookingToken: schema.appointments.bookingToken,
+        googleCalendarEventId: schema.appointments.googleCalendarEventId,
+        createdAt: schema.appointments.createdAt,
+        updatedAt: schema.appointments.updatedAt,
+      })
       .from(schema.appointments)
-      .where(
-        status
-          ? and(
-              eq(schema.appointments.tenantId, tenantId),
-              eq(schema.appointments.status, status)
-            )
-          : eq(schema.appointments.tenantId, tenantId)
-      )
+      .leftJoin(schema.bookingChannels, eq(schema.appointments.channelId, schema.bookingChannels.id))
+      .where(and(...conditions))
       .orderBy(desc(schema.appointments.createdAt));
-
-    const all = await query;
 
     const pendingCount = all.filter((a) => a.status === "pending").length;
 
@@ -329,8 +441,13 @@ export const bookings = new Hono()
       })
       .where(eq(schema.appointments.id, id));
 
-    // Get tenant name
+    // Get tenant name + channel name (se esiste)
     const tenant = await db.select().from(schema.tenants).where(eq(schema.tenants.id, appt.tenantId)).get();
+    let displayName = tenant?.name ?? "FRAME";
+    if (appt.channelId) {
+      const ch = await db.select().from(schema.bookingChannels).where(eq(schema.bookingChannels.id, appt.channelId)).get();
+      if (ch) displayName = ch.name;
+    }
 
     // Send confirmation email to client
     await sendBookingConfirmation({
@@ -343,7 +460,7 @@ export const bookings = new Hono()
       eventEnd,
       eventLocation: appt.eventLocation,
       calendarLink,
-      tenantName: tenant?.name ?? "FRAME",
+      tenantName: displayName,
     }).catch(console.error);
 
     // If called from email link (no user), redirect to dashboard
@@ -387,6 +504,11 @@ export const bookings = new Hono()
       .where(eq(schema.appointments.id, id));
 
     const tenant = await db.select().from(schema.tenants).where(eq(schema.tenants.id, appt.tenantId)).get();
+    let displayNameR = tenant?.name ?? "FRAME";
+    if (appt.channelId) {
+      const ch = await db.select().from(schema.bookingChannels).where(eq(schema.bookingChannels.id, appt.channelId)).get();
+      if (ch) displayNameR = ch.name;
+    }
 
     await sendBookingRejection({
       clientEmail: appt.clientEmail,
@@ -394,7 +516,7 @@ export const bookings = new Hono()
       eventType: appt.eventType,
       eventTypeCustom: appt.eventTypeCustom,
       eventDate: appt.eventDate,
-      tenantName: tenant?.name ?? "FRAME",
+      tenantName: displayNameR,
     }).catch(console.error);
 
     if (!user && queryToken) {

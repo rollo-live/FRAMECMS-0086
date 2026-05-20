@@ -225,6 +225,25 @@ export const videoComments = sqliteTable("video_comments", {
   createdAt: integer("created_at", { mode: "timestamp" }).$defaultFn(() => new Date()),
 });
 
+// ─── BOOKING CHANNELS ────────────────────────────────────────────────────────
+export const bookingChannels = sqliteTable("booking_channels", {
+  id: text("id").primaryKey(),
+  tenantId: text("tenant_id").notNull().references(() => tenants.id),
+  name: text("name").notNull(),           // es. "Frame Fotografia"
+  slug: text("slug").notNull().unique(),  // es. "frame" → /prenota/frame
+  // Email notifica all'operatore quando arriva una prenotazione
+  notifyEmail: text("notify_email").notNull(),
+  // Email mittente per le email al cliente (reply-to visibile)
+  replyEmail: text("reply_email").notNull(),
+  // Branding form pubblico
+  logo: text("logo"),                     // URL logo
+  primaryColor: text("primary_color").notNull().default("#F5A623"),
+  description: text("description"),       // testo intro sul form
+  active: integer("active", { mode: "boolean" }).notNull().default(true),
+  createdAt: integer("created_at", { mode: "timestamp" }).$defaultFn(() => new Date()),
+  updatedAt: integer("updated_at", { mode: "timestamp" }).$defaultFn(() => new Date()),
+});
+
 // ─── APPOINTMENTS (prenotazioni) ─────────────────────────────────────────────
 export const appointments = sqliteTable("appointments", {
   id: text("id").primaryKey(),
@@ -246,6 +265,8 @@ export const appointments = sqliteTable("appointments", {
   bookingToken: text("booking_token").notNull().unique(),
   // Google Calendar event (set after approval)
   googleCalendarEventId: text("google_calendar_event_id"),
+  // Booking channel (quale link ha usato il cliente)
+  channelId: text("channel_id").references(() => bookingChannels.id),
   // Timestamps
   createdAt: integer("created_at", { mode: "timestamp" }).$defaultFn(() => new Date()),
   updatedAt: integer("updated_at", { mode: "timestamp" }).$defaultFn(() => new Date()),

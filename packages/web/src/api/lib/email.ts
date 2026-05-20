@@ -121,6 +121,7 @@ export async function sendOwnerNotification(opts: {
   notes?: string | null;
   approveUrl: string;
   rejectUrl: string;
+  channelName?: string;
 }) {
   const eventLabel =
     opts.eventType === "altro" && opts.eventTypeCustom
@@ -130,8 +131,8 @@ export async function sendOwnerNotification(opts: {
   const servicesText = opts.services.map((s) => SERVICE_LABELS[s] ?? s).join(", ");
 
   const html = baseTemplate(`
-    <h2>Nuova richiesta di prenotazione</h2>
-    <p>Hai ricevuto una nuova richiesta da <strong style="color:#f5f5f5">${opts.clientName}</strong>.</p>
+    <h2>Nuova richiesta di prenotazione${opts.channelName ? ` — ${opts.channelName}` : ""}</h2>
+    <p>Hai ricevuto una nuova richiesta da <strong style="color:#f5f5f5">${opts.clientName}</strong>${opts.channelName ? ` tramite <strong style="color:#F5A623">${opts.channelName}</strong>` : ""}.</p>
 
     <div class="detail-box">
       <div class="detail-row">

@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from "react";
 import { useSearchParams } from "react-router-dom";
 import { api } from "../lib/api";
 import { DashboardLayout, PageHeader } from "../components/layout/dashboard-layout";
-import { Calendar, Clock, MapPin, User, Mail, Phone, Check, X, Trash2, ChevronDown, Loader2, RefreshCw, Copy, CheckCheck } from "lucide-react";
+import { Calendar, Clock, MapPin, Mail, Phone, Check, X, Trash2, ChevronDown, Loader2, RefreshCw, Copy, CheckCheck, Link2 } from "lucide-react";
 
 const EVENT_TYPE_LABELS: Record<string, string> = {
   battesimo: "Battesimo",
@@ -38,6 +38,16 @@ interface Appointment {
   notes?: string | null;
   status: "pending" | "approved" | "rejected";
   createdAt: string;
+  channelId?: string | null;
+  channelName?: string | null;
+  channelColor?: string | null;
+}
+
+interface BookingChannel {
+  id: string;
+  name: string;
+  slug: string;
+  color: string;
 }
 
 function formatDate(dateStr: string): string {
@@ -62,8 +72,10 @@ function timeAgo(dateStr: string): string {
 export default function Prenotazioni() {
   const [searchParams] = useSearchParams();
   const [appointments, setAppointments] = useState<Appointment[]>([]);
+  const [channels, setChannels] = useState<BookingChannel[]>([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<"all" | "pending" | "approved" | "rejected">("all");
+  const [channelFilter, setChannelFilter] = useState<string>("all");
   const [acting, setActing] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<string | null>(null);
   const [toast, setToast] = useState<{ msg: string; type: "ok" | "err" } | null>(null);
@@ -76,10 +88,17 @@ export default function Prenotazioni() {
 
   const load = useCallback(async () => {
     setLoading(true);
-    const res = await api.get("/api/bookings");
+    const [res, chRes] = await Promise.all([
+      api.get("/api/bookings"),
+      api.get("/api/booking-channels"),
+    ]);
     if (res.ok) {
       const d = await res.json();
       setAppointments(d.appointments ?? []);
+    }
+    if (chRes.ok) {
+      const d = await chRes.json();
+      setChannels(d.channels ?? []);
     }
     setLoading(false);
   }, []);
@@ -127,7 +146,12 @@ export default function Prenotazioni() {
   };
 
   const pendingCount = appointments.filter((a) => a.status === "pending").length;
-  const filtered = appointments.filter((a) => filter === "all" || a.status === filter);
+  const filtered = appointments.filter((a) => {
+    if (filter !== "all" && a.status !== filter) return false;
+    if (channelFilter === "none") return !a.channelId;
+    if (channelFilter !== "all" && a.channelId !== channelFilter) return false;
+    return true;
+  });
 
   // Booking page public URL — need tenant slug
   const [tenantSlug, setTenantSlug] = useState<string | null>(null);
@@ -179,8 +203,8 @@ export default function Prenotazioni() {
           </div>
         )}
 
-        {/* Filters */}
-        <div style={{ display: "flex", gap: 8, marginBottom: 24 }}>
+        {/* Status Filters */}
+        <div style={{ display: "flex", gap: 8, marginBottom: 10, flexWrap: "wrap" }}>
           {(["all", "pending", "approved", "rejected"] as const).map((f) => {
             const count = f === "all" ? appointments.length : appointments.filter((a) => a.status === f).length;
             const active = filter === f;
@@ -218,6 +242,42 @@ export default function Prenotazioni() {
             );
           })}
         </div>
+
+        {/* Channel Filters — shown only if channels exist */}
+        {channels.length > 0 && (
+          <div style={{ display: "flex", gap: 8, marginBottom: 24, flexWrap: "wrap" }}>
+            {[{ id: "all", name: "Tutti i canali", color: "#a0a0a0" }, ...channels, { id: "none", name: "Senza canale", color: "#555" }].map((ch) => {
+              const active = channelFilter === ch.id;
+              return (
+                <button
+                  key={ch.id}
+                  onClick={() => setChannelFilter(ch.id)}
+                  style={{
+                    padding: "6px 12px",
+                    borderRadius: 8,
+                    border: active ? `1.5px solid ${ch.color}` : "1.5px solid rgba(255,255,255,0.06)",
+                    background: active ? `${ch.color}22` : "#0d0d0d",
+                    color: active ? ch.color : "#666",
+                    fontSize: 12,
+                    fontWeight: 500,
+                    cursor: "pointer",
+                    fontFamily: "Poppins, sans-serif",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 5,
+                  }}
+                >
+                  {ch.id !== "all" && ch.id !== "none" && (
+                    <span style={{ width: 7, height: 7, borderRadius: "50%", background: ch.color, display: "inline-block", flexShrink: 0 }} />
+                  )}
+                  <Link2 size={10} style={{ opacity: 0.6 }} />
+                  {ch.name}
+                </button>
+              );
+            })}
+          </div>
+        )}
+        {channels.length === 0 && <div style={{ marginBottom: 24 }} />}
 
         {/* List */}
         {loading ? (
@@ -265,6 +325,12 @@ export default function Prenotazioni() {
                         <span style={{ color: "#f5f5f5", fontSize: 15, fontWeight: 600 }}>{appt.clientName}</span>
                         <span style={{ background: s.bg, color: s.color, borderRadius: 6, padding: "2px 8px", fontSize: 11, fontWeight: 600 }}>{s.label}</span>
                         <span style={{ background: "#1a1a1a", color: "#a0a0a0", borderRadius: 6, padding: "2px 8px", fontSize: 11 }}>{eventLabel}</span>
+                        {appt.channelName && (
+                          <span style={{ background: `${appt.channelColor ?? "#F5A623"}18`, color: appt.channelColor ?? "#F5A623", borderRadius: 6, padding: "2px 8px", fontSize: 11, fontWeight: 500, display: "inline-flex", alignItems: "center", gap: 4 }}>
+                            <span style={{ width: 6, height: 6, borderRadius: "50%", background: appt.channelColor ?? "#F5A623", display: "inline-block" }} />
+                            {appt.channelName}
+                          </span>
+                        )}
                       </div>
                       <div style={{ display: "flex", gap: 12, marginTop: 6, flexWrap: "wrap" }}>
                         <span style={{ color: "#666", fontSize: 12, display: "flex", alignItems: "center", gap: 4 }}>

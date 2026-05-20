@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { api } from "../lib/api";
 import { DashboardLayout } from "../components/layout/dashboard-layout";
-import { Save, Check, UserPlus, X, Mail, Trash2, Users, Calendar, Loader2, CheckCircle2, AlertCircle, Download, Upload, DatabaseBackup, ShieldCheck } from "lucide-react";
+import { Save, Check, UserPlus, X, Mail, Trash2, Users, Calendar, Loader2, CheckCircle2, AlertCircle, Download, Upload, DatabaseBackup, ShieldCheck, Link2, Plus, Copy, CheckCheck, ToggleLeft, ToggleRight, Pencil } from "lucide-react";
 import { ALL_SECTIONS, SECTION_LABELS, type SectionKey, invalidatePermissionsCache } from "../lib/permissions";
 
 type TenantSettings = { brandName: string; primaryColor: string; logoUrl: string | null };
@@ -175,6 +175,22 @@ export default function Impostazioni() {
   const [gcalLoading, setGcalLoading] = useState(false);
   const [gcalMsg, setGcalMsg] = useState<{ text: string; type: "ok" | "err" } | null>(null);
 
+  // Booking Channels state
+  type BookingChannel = { id: string; name: string; slug: string; color: string; description?: string | null; logoUrl?: string | null; notifyEmail?: string | null; replyToEmail?: string | null; isActive: boolean };
+  const [channels, setChannels] = useState<BookingChannel[]>([]);
+  const [chLoading, setChLoading] = useState(false);
+  const [chMsg, setChMsg] = useState<{ text: string; type: "ok" | "err" } | null>(null);
+  const [editingChannel, setEditingChannel] = useState<Partial<BookingChannel> | null>(null);
+  const [chSaving, setChSaving] = useState(false);
+  const [copiedSlug, setCopiedSlug] = useState<string | null>(null);
+  const blankChannel: Partial<BookingChannel> = { name: "", slug: "", color: "#F5A623", description: "", notifyEmail: "", replyToEmail: "", isActive: true };
+
+  const loadChannels = () => {
+    api.get("/api/booking-channels").then((r) => {
+      if (r.ok) r.json().then((d: any) => setChannels(d.channels ?? []));
+    });
+  };
+
   useEffect(() => {
     Promise.all([
       api.get("/api/tenant/settings"),
@@ -193,6 +209,7 @@ export default function Impostazioni() {
       if (myPermRes.ok) myPermRes.json().then((d: any) => setMyRole(d.role ?? "owner"));
       setLoading(false);
     });
+    loadChannels();
 
     // Handle redirect from OAuth
     const params = new URLSearchParams(window.location.search);
@@ -359,6 +376,52 @@ export default function Impostazioni() {
       const { url } = await res.json();
       if (url) window.location.href = url;
     }
+  };
+
+  // Booking channels helpers
+  const saveChannel = async () => {
+    if (!editingChannel) return;
+    if (!editingChannel.name?.trim() || !editingChannel.slug?.trim()) {
+      setChMsg({ text: "Nome e slug sono obbligatori", type: "err" });
+      return;
+    }
+    setChSaving(true);
+    setChMsg(null);
+    const isNew = !editingChannel.id;
+    const res = isNew
+      ? await api.post("/api/booking-channels", editingChannel)
+      : await api.patch(`/api/booking-channels/${editingChannel.id}`, editingChannel);
+    if (res.ok) {
+      setChMsg({ text: isNew ? "Canale creato!" : "Canale aggiornato!", type: "ok" });
+      setEditingChannel(null);
+      loadChannels();
+    } else {
+      const d = await res.json().catch(() => ({}));
+      setChMsg({ text: (d as any).error ?? "Errore salvataggio", type: "err" });
+    }
+    setChSaving(false);
+    setTimeout(() => setChMsg(null), 3000);
+  };
+
+  const deleteChannel = async (id: string) => {
+    if (!confirm("Eliminare questo canale? Le prenotazioni esistenti rimarranno.")) return;
+    const res = await api.delete(`/api/booking-channels/${id}`);
+    if (res.ok) {
+      setChannels((prev) => prev.filter((c) => c.id !== id));
+      setChMsg({ text: "Canale eliminato.", type: "ok" });
+      setTimeout(() => setChMsg(null), 2500);
+    }
+  };
+
+  const toggleChannelActive = async (ch: BookingChannel) => {
+    const res = await api.patch(`/api/booking-channels/${ch.id}`, { isActive: !ch.isActive });
+    if (res.ok) setChannels((prev) => prev.map((c) => c.id === ch.id ? { ...c, isActive: !c.isActive } : c));
+  };
+
+  const copyChannelUrl = (slug: string) => {
+    navigator.clipboard.writeText(`${window.location.origin}/prenota/${slug}`);
+    setCopiedSlug(slug);
+    setTimeout(() => setCopiedSlug(null), 2000);
   };
 
   if (loading) return (
@@ -699,6 +762,203 @@ export default function Impostazioni() {
             })}
           </div>
         </div>
+        {/* ── Booking Channels ─────────────────────────────────────────── */}
+        <div className="bg-[#111] border border-[rgba(255,255,255,0.07)] rounded-xl p-5 sm:p-6 mb-4">
+          <div className="flex items-center justify-between mb-5">
+            <div>
+              <h2 className="text-base font-semibold text-[#f5f5f5]">Link prenotazione</h2>
+              <p className="text-xs text-[#555] mt-0.5">Crea canali di prenotazione personalizzati con branding dedicato</p>
+            </div>
+            <button
+              onClick={() => setEditingChannel({ ...blankChannel })}
+              className="flex items-center gap-1.5 px-3 py-2 text-xs font-semibold bg-[rgba(245,166,35,0.12)] hover:bg-[rgba(245,166,35,0.2)] text-[#F5A623] border border-[rgba(245,166,35,0.25)] rounded-xl transition-colors"
+            >
+              <Plus size={13} /> Nuovo canale
+            </button>
+          </div>
+
+          {chMsg && (
+            <div className={`flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-medium mb-4 ${chMsg.type === "ok" ? "bg-[rgba(34,197,94,0.1)] text-green-400 border border-[rgba(34,197,94,0.2)]" : "bg-[rgba(239,68,68,0.1)] text-red-400 border border-[rgba(239,68,68,0.2)]"}`}>
+              {chMsg.type === "ok" ? <CheckCircle2 size={13} /> : <AlertCircle size={13} />} {chMsg.text}
+            </div>
+          )}
+
+          {/* Channels list */}
+          {channels.length === 0 && !editingChannel ? (
+            <div className="text-center py-8 text-[#444] text-sm">
+              <Link2 size={28} className="mx-auto mb-2 opacity-30" />
+              Nessun canale ancora. Crea il primo link personalizzato.
+            </div>
+          ) : (
+            <div className="space-y-2 mb-4">
+              {channels.map((ch) => (
+                <div key={ch.id} className="flex items-center gap-3 bg-[#0a0a0a] border border-[rgba(255,255,255,0.05)] rounded-xl px-4 py-3">
+                  <span style={{ width: 10, height: 10, borderRadius: "50%", background: ch.color, display: "inline-block", flexShrink: 0 }} />
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm font-semibold text-[#f5f5f5] truncate">{ch.name}</span>
+                      {!ch.isActive && <span className="text-xs text-[#555] bg-[#1a1a1a] px-2 py-0.5 rounded-md">disattivo</span>}
+                    </div>
+                    <span className="text-xs text-[#555] truncate block">/prenota/{ch.slug}</span>
+                  </div>
+                  <button
+                    onClick={() => copyChannelUrl(ch.slug)}
+                    title="Copia link"
+                    className="p-1.5 rounded-lg text-[#444] hover:text-[#F5A623] hover:bg-[rgba(245,166,35,0.08)] transition-colors"
+                  >
+                    {copiedSlug === ch.slug ? <CheckCheck size={13} className="text-green-400" /> : <Copy size={13} />}
+                  </button>
+                  <button
+                    onClick={() => toggleChannelActive(ch)}
+                    title={ch.isActive ? "Disattiva" : "Attiva"}
+                    className="p-1.5 rounded-lg text-[#444] hover:text-[#F5A623] transition-colors"
+                  >
+                    {ch.isActive ? <ToggleRight size={16} className="text-[#F5A623]" /> : <ToggleLeft size={16} />}
+                  </button>
+                  <button
+                    onClick={() => setEditingChannel({ ...ch })}
+                    title="Modifica"
+                    className="p-1.5 rounded-lg text-[#444] hover:text-[#F5A623] hover:bg-[rgba(245,166,35,0.08)] transition-colors"
+                  >
+                    <Pencil size={13} />
+                  </button>
+                  <button
+                    onClick={() => deleteChannel(ch.id)}
+                    title="Elimina"
+                    className="p-1.5 rounded-lg text-[#444] hover:text-red-400 hover:bg-[rgba(239,68,68,0.1)] transition-colors"
+                  >
+                    <Trash2 size={13} />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Edit / Create form */}
+          {editingChannel && (
+            <div className="bg-[#0a0a0a] border border-[rgba(245,166,35,0.2)] rounded-xl p-4 space-y-3 mt-2">
+              <div className="flex items-center justify-between mb-1">
+                <span className="text-sm font-semibold text-[#f5f5f5]">{editingChannel.id ? "Modifica canale" : "Nuovo canale"}</span>
+                <button onClick={() => setEditingChannel(null)} className="text-[#444] hover:text-[#f5f5f5] transition-colors"><X size={14} /></button>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs text-[#a0a0a0] font-semibold uppercase tracking-wide block mb-1">Nome *</label>
+                  <input
+                    value={editingChannel.name ?? ""}
+                    onChange={(e) => setEditingChannel({ ...editingChannel, name: e.target.value })}
+                    placeholder="es. Frame Studios"
+                    className="w-full px-3 py-2 text-sm bg-[#111] border border-[rgba(255,255,255,0.08)] rounded-xl text-[#f5f5f5] placeholder:text-[#333] outline-none focus:border-[rgba(245,166,35,0.5)]"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs text-[#a0a0a0] font-semibold uppercase tracking-wide block mb-1">Slug URL *</label>
+                  <div className="flex items-center gap-1">
+                    <span className="text-xs text-[#555] shrink-0">/prenota/</span>
+                    <input
+                      value={editingChannel.slug ?? ""}
+                      onChange={(e) => setEditingChannel({ ...editingChannel, slug: e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, "-") })}
+                      placeholder="frame"
+                      className="flex-1 px-3 py-2 text-sm bg-[#111] border border-[rgba(255,255,255,0.08)] rounded-xl text-[#f5f5f5] placeholder:text-[#333] outline-none focus:border-[rgba(245,166,35,0.5)]"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs text-[#a0a0a0] font-semibold uppercase tracking-wide block mb-1">Email notifiche</label>
+                  <input
+                    type="email"
+                    value={editingChannel.notifyEmail ?? ""}
+                    onChange={(e) => setEditingChannel({ ...editingChannel, notifyEmail: e.target.value })}
+                    placeholder="tua@email.com"
+                    className="w-full px-3 py-2 text-sm bg-[#111] border border-[rgba(255,255,255,0.08)] rounded-xl text-[#f5f5f5] placeholder:text-[#333] outline-none focus:border-[rgba(245,166,35,0.5)]"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs text-[#a0a0a0] font-semibold uppercase tracking-wide block mb-1">Email risposta cliente</label>
+                  <input
+                    type="email"
+                    value={editingChannel.replyToEmail ?? ""}
+                    onChange={(e) => setEditingChannel({ ...editingChannel, replyToEmail: e.target.value })}
+                    placeholder="risposta@email.com"
+                    className="w-full px-3 py-2 text-sm bg-[#111] border border-[rgba(255,255,255,0.08)] rounded-xl text-[#f5f5f5] placeholder:text-[#333] outline-none focus:border-[rgba(245,166,35,0.5)]"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="text-xs text-[#a0a0a0] font-semibold uppercase tracking-wide block mb-1">Descrizione (visibile ai clienti)</label>
+                <textarea
+                  value={editingChannel.description ?? ""}
+                  onChange={(e) => setEditingChannel({ ...editingChannel, description: e.target.value })}
+                  rows={2}
+                  placeholder="Prenota una sessione fotografica con Frame Studios..."
+                  className="w-full px-3 py-2 text-sm bg-[#111] border border-[rgba(255,255,255,0.08)] rounded-xl text-[#f5f5f5] placeholder:text-[#333] outline-none focus:border-[rgba(245,166,35,0.5)] resize-none"
+                />
+              </div>
+
+              <div className="flex items-center gap-4">
+                <div>
+                  <label className="text-xs text-[#a0a0a0] font-semibold uppercase tracking-wide block mb-1">Colore brand</label>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="color"
+                      value={editingChannel.color ?? "#F5A623"}
+                      onChange={(e) => setEditingChannel({ ...editingChannel, color: e.target.value })}
+                      className="w-10 h-9 rounded-lg border-0 cursor-pointer bg-transparent"
+                    />
+                    <input
+                      value={editingChannel.color ?? "#F5A623"}
+                      onChange={(e) => setEditingChannel({ ...editingChannel, color: e.target.value })}
+                      className="w-28 px-2 py-2 text-sm bg-[#111] border border-[rgba(255,255,255,0.08)] rounded-xl text-[#f5f5f5] outline-none focus:border-[rgba(245,166,35,0.5)]"
+                    />
+                  </div>
+                </div>
+                <div>
+                  <label className="text-xs text-[#a0a0a0] font-semibold uppercase tracking-wide block mb-1">Logo URL</label>
+                  <input
+                    value={editingChannel.logoUrl ?? ""}
+                    onChange={(e) => setEditingChannel({ ...editingChannel, logoUrl: e.target.value })}
+                    placeholder="https://..."
+                    className="w-full px-3 py-2 text-sm bg-[#111] border border-[rgba(255,255,255,0.08)] rounded-xl text-[#f5f5f5] placeholder:text-[#333] outline-none focus:border-[rgba(245,166,35,0.5)]"
+                  />
+                </div>
+              </div>
+
+              <div className="flex items-center justify-between pt-1">
+                <label className="flex items-center gap-2 cursor-pointer text-sm text-[#a0a0a0]">
+                  <input
+                    type="checkbox"
+                    checked={editingChannel.isActive ?? true}
+                    onChange={(e) => setEditingChannel({ ...editingChannel, isActive: e.target.checked })}
+                    className="accent-[#F5A623]"
+                  />
+                  Canale attivo
+                </label>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => setEditingChannel(null)}
+                    className="px-4 py-2 text-xs text-[#666] hover:text-[#a0a0a0] transition-colors"
+                  >
+                    Annulla
+                  </button>
+                  <button
+                    onClick={saveChannel}
+                    disabled={chSaving}
+                    className="flex items-center gap-1.5 px-4 py-2 text-xs font-semibold bg-[#F5A623] hover:bg-[#e09615] text-black rounded-xl transition-colors disabled:opacity-50"
+                  >
+                    {chSaving ? <Loader2 size={12} className="animate-spin" /> : <Save size={12} />}
+                    {editingChannel.id ? "Salva modifiche" : "Crea canale"}
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+
       </div>
     </DashboardLayout>
   );

@@ -15,6 +15,7 @@ import { tasks } from "./routes/tasks";
 import { team } from "./routes/team";
 import { contabilita } from "./routes/contabilita";
 import { backup } from "./routes/backup";
+import { bookingChannels } from "./routes/booking-channels";
 import { db } from "./database";
 import * as schema from "./database/schema";
 import { and, eq } from "drizzle-orm";
@@ -71,7 +72,8 @@ const app = new Hono()
   .route("/client-portal", portal)
   .route("/bookings", bookings)
   .route("/contabilita", contabilita)
-  .route("/backup", backup);
+  .route("/backup", backup)
+  .route("/booking-channels", bookingChannels);
 
 export type AppType = typeof app;
 export default app;
