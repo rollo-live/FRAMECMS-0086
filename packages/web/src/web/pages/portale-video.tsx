@@ -15,6 +15,7 @@ type VideoData = {
     id: string;
     title: string;
     url: string | null;
+    embedUrl: string | null;
     version: string;
     allowDownload: boolean;
     watermarkEnabled: boolean;
@@ -23,6 +24,25 @@ type VideoData = {
   comments: VideoComment[];
   tenant: { brandName: string; primaryColor: string; logoUrl: string | null };
 };
+
+/** Converte URL YouTube/Vimeo → URL embed per iframe */
+function getEmbedUrl(raw: string): string | null {
+  try {
+    const url = new URL(raw);
+    // YouTube: youtube.com/watch?v=ID  |  youtu.be/ID  |  youtube.com/embed/ID
+    if (url.hostname.includes("youtube.com") || url.hostname.includes("youtu.be")) {
+      let id = url.searchParams.get("v");
+      if (!id) id = url.pathname.replace(/^\//, "").split("/")[0]; // youtu.be/ID o /embed/ID
+      if (id) return `https://www.youtube-nocookie.com/embed/${id}?autoplay=0&rel=0`;
+    }
+    // Vimeo: vimeo.com/ID  |  player.vimeo.com/video/ID
+    if (url.hostname.includes("vimeo.com")) {
+      const id = url.pathname.split("/").filter(Boolean).pop();
+      if (id) return `https://player.vimeo.com/video/${id}`;
+    }
+  } catch {}
+  return null;
+}
 
 const CLIENT_TOKEN_KEY = "frame_client_token";
 
@@ -181,12 +201,21 @@ export default function PortaleVideo() {
             }}
           >
             {data.video.url ? (
+              /* ── S3 video ── */
               <video
                 ref={videoRef}
                 src={data.video.url}
                 controls
                 onClick={handleVideoClick}
                 style={{ width: "100%", height: "100%", objectFit: "contain" }}
+              />
+            ) : data.video.embedUrl ? (
+              /* ── YouTube / Vimeo embed ── */
+              <iframe
+                src={getEmbedUrl(data.video.embedUrl) ?? data.video.embedUrl}
+                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; fullscreen"
+                allowFullScreen
+                style={{ width: "100%", height: "100%", border: "none" }}
               />
             ) : (
               <div
@@ -252,9 +281,11 @@ export default function PortaleVideo() {
 
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "0.5rem" }}>
             <p style={{ margin: 0, fontSize: "0.75rem", color: "#64748b" }}>
-              Clicca sul video per mettere in pausa e aggiungere un feedback al momento attuale
+              {data.video.url
+                ? "Clicca sul video per mettere in pausa e aggiungere un feedback al momento attuale"
+                : "Aggiungi il tuo feedback nel modulo qui sotto"}
             </p>
-            {/* Download button */}
+            {/* Download button — solo per video S3 */}
             {data.video.allowDownload && data.video.url && (
               <a
                 href={data.video.url}
