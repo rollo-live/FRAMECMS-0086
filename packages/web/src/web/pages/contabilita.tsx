@@ -867,7 +867,7 @@ export default function Contabilita() {
       if (eRes.ok) { const d = await eRes.json(); if (Array.isArray(d)) setEntrate(d); }
       if (uRes.ok) { const d = await uRes.json(); if (Array.isArray(d)) setUscite(d); }
       if (pRes.ok) { const d = await pRes.json(); if (Array.isArray(d)) setPareggi(d); }
-      if (clRes.ok) { const d = await clRes.json(); if (Array.isArray(d)) setClients(d.map((c: any) => ({ id: c.id, name: c.name }))); }
+      if (clRes.ok) { const d = await clRes.json(); const arr = Array.isArray(d) ? d : (d?.clients ?? []); setClients(arr.map((c: any) => ({ id: c.id, name: c.name }))); }
     } catch (e) { console.error("fetchAll", e); }
     setLoading(false);
   }, [month, year]);
