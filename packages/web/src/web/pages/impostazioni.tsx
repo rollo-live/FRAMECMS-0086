@@ -178,6 +178,8 @@ export default function Impostazioni() {
   // Booking Channels state
   type BookingChannel = { id: string; name: string; slug: string; color: string; description?: string | null; logoUrl?: string | null; notifyEmail?: string | null; replyToEmail?: string | null; isActive: boolean };
   const [channels, setChannels] = useState<BookingChannel[]>([]);
+  const [channelLogoFile, setChannelLogoFile] = useState<File | null>(null);
+  const [channelLogoPreview, setChannelLogoPreview] = useState<string | null>(null);
   const [chLoading, setChLoading] = useState(false);
   const [chMsg, setChMsg] = useState<{ text: string; type: "ok" | "err" } | null>(null);
   const [editingChannel, setEditingChannel] = useState<Partial<BookingChannel> | null>(null);
@@ -387,13 +389,31 @@ export default function Impostazioni() {
     }
     setChSaving(true);
     setChMsg(null);
+
+    // Upload logo se è stato selezionato un file
+    let logoUrl = editingChannel.logoUrl ?? null;
+    if (channelLogoFile) {
+      const presignRes = await api.post("/api/booking-channels/logo-presign", {
+        filename: channelLogoFile.name,
+        contentType: channelLogoFile.type,
+      });
+      if (presignRes.ok) {
+        const { uploadUrl, key } = await presignRes.json();
+        await fetch(uploadUrl, { method: "PUT", body: channelLogoFile, headers: { "Content-Type": channelLogoFile.type } });
+        logoUrl = key; // salva la key S3, non l'URL presigned
+      }
+    }
+
+    const payload = { ...editingChannel, logoUrl };
     const isNew = !editingChannel.id;
     const res = isNew
-      ? await api.post("/api/booking-channels", editingChannel)
-      : await api.patch(`/api/booking-channels/${editingChannel.id}`, editingChannel);
+      ? await api.post("/api/booking-channels", payload)
+      : await api.patch(`/api/booking-channels/${editingChannel.id}`, payload);
     if (res.ok) {
       setChMsg({ text: isNew ? "Canale creato!" : "Canale aggiornato!", type: "ok" });
       setEditingChannel(null);
+      setChannelLogoFile(null);
+      setChannelLogoPreview(null);
       loadChannels();
     } else {
       const d = await res.json().catch(() => ({}));
@@ -839,7 +859,7 @@ export default function Impostazioni() {
             <div className="bg-[#0a0a0a] border border-[rgba(245,166,35,0.2)] rounded-xl p-4 space-y-3 mt-2">
               <div className="flex items-center justify-between mb-1">
                 <span className="text-sm font-semibold text-[#f5f5f5]">{editingChannel.id ? "Modifica canale" : "Nuovo canale"}</span>
-                <button onClick={() => setEditingChannel(null)} className="text-[#444] hover:text-[#f5f5f5] transition-colors"><X size={14} /></button>
+                <button onClick={() => { setEditingChannel(null); setChannelLogoFile(null); setChannelLogoPreview(null); }} className="text-[#444] hover:text-[#f5f5f5] transition-colors"><X size={14} /></button>
               </div>
 
               <div className="grid grid-cols-2 gap-3">
@@ -918,13 +938,46 @@ export default function Impostazioni() {
                   </div>
                 </div>
                 <div>
-                  <label className="text-xs text-[#a0a0a0] font-semibold uppercase tracking-wide block mb-1">Logo URL</label>
-                  <input
-                    value={editingChannel.logoUrl ?? ""}
-                    onChange={(e) => setEditingChannel({ ...editingChannel, logoUrl: e.target.value })}
-                    placeholder="https://..."
-                    className="w-full px-3 py-2 text-sm bg-[#111] border border-[rgba(255,255,255,0.08)] rounded-xl text-[#f5f5f5] placeholder:text-[#333] outline-none focus:border-[rgba(245,166,35,0.5)]"
-                  />
+                  <label className="text-xs text-[#a0a0a0] font-semibold uppercase tracking-wide block mb-1">Logo canale</label>
+                  <div className="flex items-center gap-2">
+                    {/* Preview */}
+                    {(channelLogoPreview || editingChannel.logoUrl) && (
+                      <img
+                        src={channelLogoPreview ?? (editingChannel.logoUrl?.startsWith("http") ? editingChannel.logoUrl : undefined)}
+                        alt="logo"
+                        className="w-9 h-9 rounded-lg object-contain bg-[#1a1a1a] border border-[rgba(255,255,255,0.08)] flex-shrink-0"
+                      />
+                    )}
+                    <label className="flex-1 flex items-center gap-2 px-3 py-2 text-sm bg-[#111] border border-[rgba(255,255,255,0.08)] rounded-xl text-[#666] cursor-pointer hover:border-[rgba(245,166,35,0.4)] transition-colors">
+                      <Upload size={13} />
+                      <span className="truncate">{channelLogoFile ? channelLogoFile.name : "Carica immagine..."}</span>
+                      <input
+                        type="file"
+                        accept="image/*"
+                        className="hidden"
+                        onChange={(e) => {
+                          const f = e.target.files?.[0] ?? null;
+                          setChannelLogoFile(f);
+                          if (f) {
+                            const reader = new FileReader();
+                            reader.onload = (ev) => setChannelLogoPreview(ev.target?.result as string);
+                            reader.readAsDataURL(f);
+                          } else {
+                            setChannelLogoPreview(null);
+                          }
+                        }}
+                      />
+                    </label>
+                    {(channelLogoFile || editingChannel.logoUrl) && (
+                      <button
+                        onClick={() => { setChannelLogoFile(null); setChannelLogoPreview(null); setEditingChannel({ ...editingChannel, logoUrl: null }); }}
+                        className="p-1.5 text-[#444] hover:text-red-400 transition-colors"
+                        title="Rimuovi logo"
+                      >
+                        <X size={13} />
+                      </button>
+                    )}
+                  </div>
                 </div>
               </div>
 
@@ -940,7 +993,7 @@ export default function Impostazioni() {
                 </label>
                 <div className="flex gap-2">
                   <button
-                    onClick={() => setEditingChannel(null)}
+                    onClick={() => { setEditingChannel(null); setChannelLogoFile(null); setChannelLogoPreview(null); }}
                     className="px-4 py-2 text-xs text-[#666] hover:text-[#a0a0a0] transition-colors"
                   >
                     Annulla

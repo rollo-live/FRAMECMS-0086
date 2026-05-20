@@ -5,6 +5,7 @@ import { eq, and } from "drizzle-orm";
 import { requireAuth } from "../middleware/auth";
 import { nanoid } from "../lib/id";
 import { z } from "zod/v4";
+import { getPresignedUploadUrl, getPresignedGetUrl } from "../lib/s3";
 
 const ChannelSchema = z.object({
   name: z.string().min(1).max(200),
@@ -47,6 +48,26 @@ export const bookingChannels = new Hono()
       isActive: r.active,
     }));
     return c.json({ channels }, 200);
+  })
+
+  // POST /api/booking-channels/logo-presign — presign upload logo
+  .post("/logo-presign", requireAuth, async (c) => {
+    const user = c.get("user")!;
+    const tenantId = await getTenantId(user.id);
+    if (!tenantId) return c.json({ error: "Non autorizzato" }, 401);
+    const body = await c.req.json().catch(() => ({}));
+    const filename = (body.filename as string) ?? "logo.png";
+    const contentType = (body.contentType as string) ?? "image/png";
+    const key = `channels/${tenantId}/${nanoid()}-${filename}`;
+    const uploadUrl = await getPresignedUploadUrl(key, contentType, 600);
+    return c.json({ uploadUrl, key }, 200);
+  })
+
+  // GET /api/booking-channels/logo/:key — presigned get URL per logo
+  .get("/logo/:key{.+}", requireAuth, async (c) => {
+    const key = c.req.param("key");
+    const url = await getPresignedGetUrl(key, 3600);
+    return c.json({ url }, 200);
   })
 
   // POST /api/booking-channels — crea canale

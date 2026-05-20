@@ -5,6 +5,7 @@ import { eq, and, desc, count } from "drizzle-orm";
 import { requireAuth } from "../middleware/auth";
 import { bookingRateLimit } from "../middleware/rate-limit";
 import { nanoid } from "../lib/id";
+import { getPresignedGetUrl } from "../lib/s3";
 import {
   getAuthUrl,
   exchangeCode,
@@ -185,12 +186,19 @@ export const bookings = new Hono()
       .where(eq(schema.bookingChannels.slug, channelSlug)).get();
     if (!channel || !channel.active) return c.json({ error: "Link non trovato" }, 404);
     // Ritorna solo info pubbliche (no email interne)
+    // Risolvi logo S3 key in presigned URL se presente
+    let logoUrl: string | null = null;
+    if (channel.logo) {
+      try {
+        logoUrl = channel.logo.startsWith("http") ? channel.logo : await getPresignedGetUrl(channel.logo, 3600);
+      } catch { logoUrl = null; }
+    }
     return c.json({
       channel: {
         id: channel.id,
         name: channel.name,
         slug: channel.slug,
-        logo: channel.logo,
+        logo: logoUrl,
         primaryColor: channel.primaryColor,
         description: channel.description,
       }
