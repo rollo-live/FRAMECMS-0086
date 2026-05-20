@@ -82,7 +82,7 @@ export const EntrataSchema = z.object({
   acconto: z.number().min(0).optional(),
   saldoRicevuto: z.number().min(0).optional(),
   clientId: z.string().optional().nullable(),
-  beneficiario: z.enum(["split", "alessio", "gianluca"]).optional(),
+  beneficiario: z.enum(["split", "socio_a", "socio_b"]).optional(),
   fattura: z.boolean().optional(),
   speseOperatore: z.number().min(0).optional(),
   categoria: z.string().max(100).optional(),
@@ -95,7 +95,7 @@ export const EntrataUpdateSchema = EntrataSchema.partial();
 export const UscitaSchema = z.object({
   descrizione: z.string().min(1).max(500),
   importo: z.number().min(0),
-  beneficiario: z.enum(["split", "alessio", "gianluca"]).optional(),
+  beneficiario: z.enum(["split", "socio_a", "socio_b"]).optional(),
   fattura: z.boolean().optional(),
   categoria: z.string().max(100).optional(),
   note: z.string().max(2000).optional().nullable(),
