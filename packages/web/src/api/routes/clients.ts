@@ -38,6 +38,15 @@ export const clients = new Hono()
       type: body.type ?? "client",
       notes: body.notes,
       tags: body.tags ? JSON.stringify(body.tags) : "[]",
+      codiceSdi: body.codiceSdi ?? null,
+      partitaIva: body.partitaIva ?? null,
+      codiceFiscale: body.codiceFiscale ?? null,
+      codiceCliente: body.codiceCliente ?? null,
+      pec: body.pec ?? null,
+      indirizzo: body.indirizzo ?? null,
+      cap: body.cap ?? null,
+      comune: body.comune ?? null,
+      provincia: body.provincia ?? null,
     }).returning();
     return c.json({ client }, 201);
   })
@@ -65,6 +74,15 @@ export const clients = new Hono()
       status: body.status,
       notes: body.notes,
       tags: body.tags ? JSON.stringify(body.tags) : undefined,
+      codiceSdi: body.codiceSdi,
+      partitaIva: body.partitaIva,
+      codiceFiscale: body.codiceFiscale,
+      codiceCliente: body.codiceCliente,
+      pec: body.pec,
+      indirizzo: body.indirizzo,
+      cap: body.cap,
+      comune: body.comune,
+      provincia: body.provincia,
       updatedAt: new Date(),
     }).where(and(eq(schema.clients.id, c.req.param("id")), eq(schema.clients.tenantId, tenantId))).returning();
     return c.json({ client }, 200);

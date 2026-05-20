@@ -36,6 +36,17 @@ export const clients = sqliteTable("clients", {
   status: text("status").notNull().default("active"),
   notes: text("notes"),
   tags: text("tags").default("[]"),
+  // Dati fiscali / fatturazione
+  codiceSdi: text("codice_sdi"),
+  partitaIva: text("partita_iva"),
+  codiceFiscale: text("codice_fiscale"),
+  codiceCliente: text("codice_cliente"),
+  pec: text("pec"),
+  // Indirizzo
+  indirizzo: text("indirizzo"),
+  cap: text("cap"),
+  comune: text("comune"),
+  provincia: text("provincia"),
   createdAt: integer("created_at", { mode: "timestamp" }).$defaultFn(() => new Date()),
   updatedAt: integer("updated_at", { mode: "timestamp" }).$defaultFn(() => new Date()),
 });

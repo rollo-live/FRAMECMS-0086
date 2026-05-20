@@ -39,6 +39,15 @@ export const ClientSchema = z.object({
   status: z.string().max(50).optional().nullable(),
   notes: z.string().max(5000).optional().nullable(),
   tags: z.array(z.string()).optional(),
+  codiceSdi: z.string().max(20).optional().nullable(),
+  partitaIva: z.string().max(20).optional().nullable(),
+  codiceFiscale: z.string().max(20).optional().nullable(),
+  codiceCliente: z.string().max(50).optional().nullable(),
+  pec: z.string().max(255).optional().nullable(),
+  indirizzo: z.string().max(500).optional().nullable(),
+  cap: z.string().max(10).optional().nullable(),
+  comune: z.string().max(100).optional().nullable(),
+  provincia: z.string().max(5).optional().nullable(),
 });
 
 export const ClientUpdateSchema = ClientSchema.partial();
