@@ -9,6 +9,7 @@ export const user = sqliteTable("user", {
     .default(false)
     .notNull(),
   image: text("image"),
+  twoFactorEnabled: integer("two_factor_enabled", { mode: "boolean" }).default(false),
   createdAt: integer("created_at", { mode: "timestamp_ms" })
     .default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
     .notNull(),
@@ -86,6 +87,15 @@ export const verification = sqliteTable(
   },
   (table) => [index("verification_identifier_idx").on(table.identifier)],
 );
+
+export const twoFactor = sqliteTable("two_factor", {
+  id: text("id").primaryKey(),
+  secret: text("secret").notNull(),
+  backupCodes: text("backup_codes").notNull(),
+  userId: text("user_id")
+    .notNull()
+    .references(() => user.id, { onDelete: "cascade" }),
+});
 
 export const userRelations = relations(user, ({ many }) => ({
   sessions: many(session),
