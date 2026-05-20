@@ -1,6 +1,7 @@
 import { betterAuth } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { autumn } from "autumn-js/better-auth";
+import { twoFactor } from "better-auth/plugins";
 import { Autumn } from "autumn-js";
 import { db } from "./database";
 
@@ -18,7 +19,13 @@ export const auth = betterAuth({
     "http://localhost:4200",
     "http://localhost:3000",
   ].filter(Boolean) as string[],
-  plugins: [autumn()],
+  plugins: [
+    autumn(),
+    twoFactor({
+      issuer: "FRAME",
+      totpOptions: { period: 30, digits: 6 },
+    }),
+  ],
   databaseHooks: {
     user: {
       create: {

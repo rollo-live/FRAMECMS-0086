@@ -23,6 +23,8 @@ const Contabilita = lazy(() => import("./pages/contabilita"));
 const Booking = lazy(() => import("./pages/booking"));
 const BookingChannel = lazy(() => import("./pages/booking-channel"));
 
+const TwoFactorVerify = lazy(() => import("./pages/two-factor-verify"));
+
 // Public pages
 const AcceptInvite = lazy(() => import("./pages/accept-invite"));
 const Firma = lazy(() => import("./pages/firma"));
@@ -78,6 +80,7 @@ function App() {
       <Routes>
         {/* Public routes */}
         <Route path="/login" element={<Login />} />
+        <Route path="/2fa/verify" element={<TwoFactorVerify />} />
         <Route path="/accept-invite" element={<AcceptInvite />} />
         <Route path="/firma/:token" element={<Firma />} />
         <Route path="/portale/gallery/:token" element={<PortaleGallery />} />

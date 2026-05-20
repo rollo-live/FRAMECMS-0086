@@ -1,7 +1,8 @@
 import { useState, useEffect, useRef } from "react";
 import { api } from "../lib/api";
+import { authClient } from "../lib/auth";
 import { DashboardLayout } from "../components/layout/dashboard-layout";
-import { Save, Check, UserPlus, X, Mail, Trash2, Users, Calendar, Loader2, CheckCircle2, AlertCircle, Download, Upload, DatabaseBackup, ShieldCheck, Link2, Plus, Copy, CheckCheck, ToggleLeft, ToggleRight, Pencil } from "lucide-react";
+import { Save, Check, UserPlus, X, Mail, Trash2, Users, Calendar, Loader2, CheckCircle2, AlertCircle, Download, Upload, DatabaseBackup, ShieldCheck, Link2, Plus, Copy, CheckCheck, ToggleLeft, ToggleRight, Pencil, KeyRound, QrCode, Lock } from "lucide-react";
 import { ALL_SECTIONS, SECTION_LABELS, type SectionKey, invalidatePermissionsCache } from "../lib/permissions";
 
 type TenantSettings = { brandName: string; primaryColor: string; logoUrl: string | null };
@@ -187,6 +188,15 @@ export default function Impostazioni() {
   const [copiedSlug, setCopiedSlug] = useState<string | null>(null);
   const blankChannel: Partial<BookingChannel> = { name: "", slug: "", color: "#F5A623", description: "", notifyEmail: "", replyToEmail: "", isActive: true };
 
+  // 2FA state
+  const [twoFaEnabled, setTwoFaEnabled] = useState<boolean | null>(null);
+  const [twoFaLoading, setTwoFaLoading] = useState(false);
+  const [twoFaSetup, setTwoFaSetup] = useState<{ totpURI: string; backupCodes: string[] } | null>(null);
+  const [twoFaPassword, setTwoFaPassword] = useState("");
+  const [twoFaCode, setTwoFaCode] = useState("");
+  const [twoFaMsg, setTwoFaMsg] = useState<{ text: string; type: "ok" | "err" } | null>(null);
+  const [twoFaStep, setTwoFaStep] = useState<"idle" | "setup" | "confirm" | "backup">("idle");
+
   const loadChannels = () => {
     api.get("/api/booking-channels").then((r) => {
       if (r.ok) r.json().then((d: any) => setChannels(d.channels ?? []));
@@ -194,6 +204,12 @@ export default function Impostazioni() {
   };
 
   useEffect(() => {
+    // Load 2FA status from session
+    authClient.getSession().then((s) => {
+      const user = (s?.data?.user as any);
+      setTwoFaEnabled(user?.twoFactorEnabled ?? false);
+    });
+
     Promise.all([
       api.get("/api/tenant/settings"),
       api.get("/api/tenant/plan"),
@@ -444,6 +460,59 @@ export default function Impostazioni() {
     setTimeout(() => setCopiedSlug(null), 2000);
   };
 
+  // ── 2FA handlers ─────────────────────────────────────────────────────────
+  const enable2FA = async () => {
+    if (!twoFaPassword) return;
+    setTwoFaLoading(true);
+    setTwoFaMsg(null);
+    try {
+      const res = await (authClient as any).twoFactor.enable({ password: twoFaPassword, issuer: "FRAME" });
+      if (res.error) throw new Error(res.error.message ?? "Errore");
+      setTwoFaSetup({ totpURI: res.data.totpURI, backupCodes: res.data.backupCodes ?? [] });
+      setTwoFaStep("setup");
+      setTwoFaPassword("");
+    } catch (e: any) {
+      setTwoFaMsg({ text: e.message ?? "Errore durante l'attivazione", type: "err" });
+    } finally {
+      setTwoFaLoading(false);
+    }
+  };
+
+  const verify2FASetup = async () => {
+    if (!twoFaCode || twoFaCode.length !== 6) return;
+    setTwoFaLoading(true);
+    try {
+      const res = await (authClient as any).twoFactor.verifyTotp({ code: twoFaCode });
+      if (res.error) throw new Error(res.error.message ?? "Codice non valido");
+      setTwoFaEnabled(true);
+      setTwoFaStep("backup");
+      setTwoFaCode("");
+      setTwoFaMsg({ text: "2FA attivato con successo!", type: "ok" });
+    } catch (e: any) {
+      setTwoFaMsg({ text: e.message ?? "Codice non valido", type: "err" });
+    } finally {
+      setTwoFaLoading(false);
+    }
+  };
+
+  const disable2FA = async () => {
+    if (!twoFaPassword) return;
+    setTwoFaLoading(true);
+    setTwoFaMsg(null);
+    try {
+      const res = await (authClient as any).twoFactor.disable({ password: twoFaPassword });
+      if (res.error) throw new Error(res.error.message ?? "Errore");
+      setTwoFaEnabled(false);
+      setTwoFaStep("idle");
+      setTwoFaPassword("");
+      setTwoFaMsg({ text: "2FA disattivato.", type: "ok" });
+    } catch (e: any) {
+      setTwoFaMsg({ text: e.message ?? "Errore durante la disattivazione", type: "err" });
+    } finally {
+      setTwoFaLoading(false);
+    }
+  };
+
   if (loading) return (
     <DashboardLayout>
       <div className="p-4 sm:p-8 text-[#a0a0a0] text-sm">Caricamento...</div>
@@ -688,6 +757,159 @@ export default function Impostazioni() {
               )}
               {gcalLoading ? "Connessione in corso..." : "Collega Google Calendar"}
             </button>
+          )}
+        </div>
+
+        {/* Sicurezza — 2FA */}
+        <div className="bg-[#111] border border-[rgba(255,255,255,0.07)] rounded-xl p-5 sm:p-6 mb-4">
+          <div className="flex items-center gap-2 mb-1">
+            <Lock size={16} className="text-[#F5A623]" />
+            <h2 className="text-base font-semibold text-[#f5f5f5]">Sicurezza account</h2>
+          </div>
+          <p className="text-sm text-[#666] mb-5">
+            La verifica in due passaggi aggiunge un secondo livello di sicurezza al tuo account.
+            Oltre alla password, ti verrà chiesto un codice dall'app Google Authenticator (o simile).
+          </p>
+
+          {/* Status badge */}
+          <div className="flex items-center gap-3 mb-5">
+            <div className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold ${twoFaEnabled ? "bg-green-500/10 text-green-400 border border-green-500/20" : "bg-[rgba(255,255,255,0.04)] text-[#666] border border-[rgba(255,255,255,0.07)]"}`}>
+              <ShieldCheck size={12} />
+              {twoFaEnabled ? "2FA attivo" : "2FA non attivo"}
+            </div>
+          </div>
+
+          {twoFaMsg && (
+            <div className={`flex items-center gap-2 text-sm rounded-xl px-4 py-3 mb-4 ${twoFaMsg.type === "ok" ? "bg-green-500/10 border border-green-500/30 text-green-400" : "bg-red-500/10 border border-red-500/30 text-red-400"}`}>
+              {twoFaMsg.type === "ok" ? <CheckCircle2 size={14} /> : <AlertCircle size={14} />}
+              <span>{twoFaMsg.text}</span>
+            </div>
+          )}
+
+          {/* STEP: idle — mostra pulsante attiva/disattiva */}
+          {twoFaStep === "idle" && (
+            <div className="space-y-3">
+              <div>
+                <label className="block text-xs text-[#666] mb-1.5">Password attuale</label>
+                <input
+                  type="password"
+                  value={twoFaPassword}
+                  onChange={(e) => setTwoFaPassword(e.target.value)}
+                  placeholder="••••••••"
+                  className="w-full max-w-xs px-3 py-2 bg-[#0a0a0a] border border-[rgba(255,255,255,0.08)] rounded-xl text-sm text-[#f5f5f5] placeholder:text-[#333] focus:outline-none focus:border-[#F5A623] transition-colors"
+                />
+              </div>
+              {!twoFaEnabled ? (
+                <button
+                  onClick={enable2FA}
+                  disabled={twoFaLoading || !twoFaPassword}
+                  className="flex items-center gap-2 px-5 py-2.5 text-sm font-semibold bg-[#F5A623] hover:bg-[#e09615] text-black rounded-xl transition-colors disabled:opacity-50"
+                >
+                  {twoFaLoading ? <Loader2 size={14} className="animate-spin" /> : <ShieldCheck size={14} />}
+                  Attiva 2FA
+                </button>
+              ) : (
+                <button
+                  onClick={disable2FA}
+                  disabled={twoFaLoading || !twoFaPassword}
+                  className="flex items-center gap-2 px-5 py-2.5 text-sm font-semibold bg-red-500/10 hover:bg-red-500/20 text-red-400 border border-red-500/20 rounded-xl transition-colors disabled:opacity-50"
+                >
+                  {twoFaLoading ? <Loader2 size={14} className="animate-spin" /> : <X size={14} />}
+                  Disattiva 2FA
+                </button>
+              )}
+            </div>
+          )}
+
+          {/* STEP: setup — mostra QR code */}
+          {twoFaStep === "setup" && twoFaSetup && (
+            <div className="space-y-4">
+              <div className="bg-[#0a0a0a] border border-[rgba(255,255,255,0.06)] rounded-xl p-4">
+                <div className="flex items-center gap-2 mb-3">
+                  <QrCode size={14} className="text-[#F5A623]" />
+                  <p className="text-sm font-medium text-[#f5f5f5]">Scansiona con la tua app authenticator</p>
+                </div>
+                <p className="text-xs text-[#555] mb-4">
+                  Apri Google Authenticator, Authy o altra app compatibile e scansiona il QR code (usa il link qui sotto se non riesci a scansionarlo).
+                </p>
+                {/* QR via Google Charts API */}
+                <div className="flex justify-center mb-3">
+                  <img
+                    src={`https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=${encodeURIComponent(twoFaSetup.totpURI)}`}
+                    alt="QR Code 2FA"
+                    className="rounded-xl border border-[rgba(255,255,255,0.08)]"
+                    style={{ imageRendering: "pixelated" }}
+                  />
+                </div>
+                <details className="mt-2">
+                  <summary className="text-xs text-[#444] cursor-pointer hover:text-[#666]">Mostra URI manuale</summary>
+                  <p className="text-[10px] text-[#444] mt-1 break-all font-mono bg-[#060606] rounded-lg p-2">{twoFaSetup.totpURI}</p>
+                </details>
+              </div>
+
+              <div>
+                <label className="block text-xs text-[#666] mb-1.5">Inserisci il codice a 6 cifre per confermare</label>
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  pattern="[0-9]*"
+                  maxLength={6}
+                  value={twoFaCode}
+                  onChange={(e) => setTwoFaCode(e.target.value.replace(/\D/g, ""))}
+                  placeholder="000000"
+                  className="w-full max-w-xs px-3 py-2 bg-[#0a0a0a] border border-[rgba(255,255,255,0.08)] rounded-xl text-sm text-[#f5f5f5] font-mono tracking-widest placeholder:text-[#333] focus:outline-none focus:border-[#F5A623] transition-colors"
+                />
+              </div>
+
+              <div className="flex gap-3">
+                <button
+                  onClick={verify2FASetup}
+                  disabled={twoFaLoading || twoFaCode.length !== 6}
+                  className="flex items-center gap-2 px-5 py-2.5 text-sm font-semibold bg-[#F5A623] hover:bg-[#e09615] text-black rounded-xl transition-colors disabled:opacity-50"
+                >
+                  {twoFaLoading ? <Loader2 size={14} className="animate-spin" /> : <Check size={14} />}
+                  Conferma
+                </button>
+                <button
+                  onClick={() => { setTwoFaStep("idle"); setTwoFaSetup(null); setTwoFaCode(""); }}
+                  className="px-4 py-2.5 text-sm text-[#666] hover:text-[#a0a0a0] transition-colors"
+                >
+                  Annulla
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* STEP: backup — mostra codici di backup */}
+          {twoFaStep === "backup" && twoFaSetup && (
+            <div className="space-y-4">
+              <div className="bg-[#0a0a0a] border border-[rgba(245,166,35,0.2)] rounded-xl p-4">
+                <div className="flex items-center gap-2 mb-2">
+                  <KeyRound size={14} className="text-[#F5A623]" />
+                  <p className="text-sm font-semibold text-[#f5f5f5]">Salva i codici di backup</p>
+                </div>
+                <p className="text-xs text-[#666] mb-3">
+                  Conserva questi codici in un posto sicuro. Puoi usarli per accedere se perdi l'accesso all'app authenticator. <strong className="text-[#a0a0a0]">Ogni codice funziona una sola volta.</strong>
+                </p>
+                <div className="grid grid-cols-2 gap-1.5">
+                  {twoFaSetup.backupCodes.map((c, i) => (
+                    <code key={i} className="text-xs font-mono text-[#F5A623] bg-[#060606] border border-[rgba(245,166,35,0.1)] rounded-lg px-3 py-1.5">{c}</code>
+                  ))}
+                </div>
+                <button
+                  onClick={() => navigator.clipboard.writeText(twoFaSetup!.backupCodes.join("\n"))}
+                  className="flex items-center gap-1.5 mt-3 text-xs text-[#555] hover:text-[#F5A623] transition-colors"
+                >
+                  <Copy size={11} /> Copia tutti
+                </button>
+              </div>
+              <button
+                onClick={() => { setTwoFaStep("idle"); setTwoFaSetup(null); setTwoFaMsg(null); }}
+                className="flex items-center gap-2 px-5 py-2.5 text-sm font-semibold bg-[rgba(255,255,255,0.06)] hover:bg-[rgba(255,255,255,0.1)] text-[#f5f5f5] border border-[rgba(255,255,255,0.08)] rounded-xl transition-colors"
+              >
+                <Check size={14} /> Ho salvato i codici
+              </button>
+            </div>
           )}
         </div>
 
