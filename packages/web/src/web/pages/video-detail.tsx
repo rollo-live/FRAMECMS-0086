@@ -17,6 +17,7 @@ type VideoItem = {
   id: string;
   title: string;
   url: string | null;
+  embedUrl: string | null;
   version: string;
   shareToken: string | null;
   allowDownload: boolean;
@@ -24,6 +25,17 @@ type VideoItem = {
   watermarkText: string | null;
   project?: { name: string };
 };
+
+function getEmbedUrl(url: string): string {
+  // YouTube: watch?v=ID, youtu.be/ID, shorts/ID
+  const ytMatch = url.match(/(?:youtube\.com\/(?:watch\?v=|shorts\/)|youtu\.be\/)([A-Za-z0-9_-]{11})/);
+  if (ytMatch) return `https://www.youtube.com/embed/${ytMatch[1]}?rel=0`;
+  // Vimeo: vimeo.com/ID or vimeo.com/channels/xxx/ID
+  const vmMatch = url.match(/vimeo\.com\/(?:.*\/)?(\d+)/);
+  if (vmMatch) return `https://player.vimeo.com/video/${vmMatch[1]}`;
+  // Already an embed URL or unknown — return as-is
+  return url;
+}
 
 function formatTimecode(ms: number): string {
   const totalSec = Math.floor(ms / 1000);
@@ -268,7 +280,15 @@ export default function VideoDetail() {
           <div className="flex flex-col gap-4 flex-1 min-w-0">
             {/* Video player */}
             <div className="bg-black rounded-xl overflow-hidden aspect-video">
-              {video.url ? (
+              {video.embedUrl ? (
+                <iframe
+                  src={getEmbedUrl(video.embedUrl)}
+                  className="w-full h-full"
+                  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                  allowFullScreen
+                  title={video.title}
+                />
+              ) : video.url ? (
                 <video
                   ref={videoRef}
                   src={video.url}
@@ -285,7 +305,9 @@ export default function VideoDetail() {
             </div>
 
             <p className="text-xs text-[var(--text-secondary)]">
-              Clicca sul video per mettere in pausa e aggiungere un commento al timecode corrente
+              {video.embedUrl
+                ? "Video esterno (YouTube/Vimeo) — i commenti non hanno timecode"
+                : "Clicca sul video per mettere in pausa e aggiungere un commento al timecode corrente"}
             </p>
 
             {/* Comment input */}

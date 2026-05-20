@@ -206,6 +206,7 @@ export const videos = sqliteTable("videos", {
   title: text("title").notNull(),
   version: text("version").notNull().default("v1"), // v1 | v2 | final
   r2Key: text("r2_key").notNull().default(""),
+  embedUrl: text("embed_url"),
   duration: real("duration"),
   shareToken: text("share_token").unique(),
   allowDownload: integer("allow_download", { mode: "boolean" }).notNull().default(true),

@@ -2,13 +2,14 @@ import { useState, useEffect } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { api } from "../lib/api";
 import { DashboardLayout } from "../components/layout/dashboard-layout";
-import { Plus, Video as VideoIcon, ExternalLink, MessageSquare, Trash2 } from "lucide-react";
+import { Plus, Video as VideoIcon, ExternalLink, MessageSquare, Trash2, Link as LinkIcon, HardDrive } from "lucide-react";
 
 type VideoItem = {
   id: string;
   title: string;
   url: string | null;
   r2Key: string;
+  embedUrl: string | null;
   version: string;
   projectId: string;
   project?: { name: string };
@@ -30,7 +31,9 @@ export default function VideoPage() {
   const [showModal, setShowModal] = useState(false);
   const [projects, setProjects] = useState<{ id: string; name: string }[]>([]);
   const [form, setForm] = useState({ title: "", projectId: "", version: "V1" });
+  const [videoSource, setVideoSource] = useState<"file" | "embed">("file");
   const [file, setFile] = useState<File | null>(null);
+  const [embedUrl, setEmbedUrl] = useState("");
   const [creating, setCreating] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [searchParams] = useSearchParams();
@@ -53,21 +56,28 @@ export default function VideoPage() {
     setCreating(true);
     try {
       let r2Key = "";
-      if (file) {
+      let finalEmbedUrl: string | null = null;
+
+      if (videoSource === "file" && file) {
         const presignRes = await api.post("/api/videos/presign", { filename: file.name, contentType: file.type });
         if (presignRes.ok) {
           const { url: presignUrl, key } = await presignRes.json();
           await fetch(presignUrl, { method: "PUT", body: file, headers: { "Content-Type": file.type } });
           r2Key = key;
         }
+      } else if (videoSource === "embed" && embedUrl.trim()) {
+        finalEmbedUrl = embedUrl.trim();
       }
-      const res = await api.post("/api/videos", { ...form, r2Key });
+
+      const res = await api.post("/api/videos", { ...form, r2Key, embedUrl: finalEmbedUrl });
       if (res.ok) {
         const d = await res.json();
         setVideos((prev) => [d.video ?? d, ...prev]);
         setShowModal(false);
         setForm({ title: "", projectId: "", version: "V1" });
         setFile(null);
+        setEmbedUrl("");
+        setVideoSource("file");
       }
     } finally {
       setCreating(false);
@@ -123,6 +133,9 @@ export default function VideoPage() {
             {displayed.map((video) => {
               const vColor = VERSION_COLORS[video.version] ?? "#6366f1";
               const hasFile = !!video.r2Key;
+              const hasEmbed = !!video.embedUrl;
+              const isYouTube = hasEmbed && (video.embedUrl!.includes("youtube") || video.embedUrl!.includes("youtu.be"));
+              const isVimeo = hasEmbed && video.embedUrl!.includes("vimeo");
               return (
                 <div
                   key={video.id}
@@ -148,7 +161,13 @@ export default function VideoPage() {
                           <MessageSquare size={11} /> {video.commentCount}
                         </span>
                       )}
-                      {!hasFile && (
+                      {hasEmbed && (
+                        <span className={`flex items-center gap-1 text-xs px-1.5 py-0.5 rounded-md font-medium ${isYouTube ? "bg-red-500/15 text-red-400" : isVimeo ? "bg-blue-500/15 text-blue-400" : "bg-[rgba(255,255,255,0.07)] text-[#888]"}`}>
+                          <LinkIcon size={9} />
+                          {isYouTube ? "YouTube" : isVimeo ? "Vimeo" : "Embed"}
+                        </span>
+                      )}
+                      {!hasFile && !hasEmbed && (
                         <span className="text-xs text-amber-500/70">⚠ nessun file</span>
                       )}
                       <span className="text-xs text-[#444]">{new Date(video.createdAt).toLocaleDateString("it-IT")}</span>
@@ -219,18 +238,51 @@ export default function VideoPage() {
                   </select>
                 </div>
               </div>
+              {/* Source toggle */}
               <div>
-                <label className="text-xs font-semibold text-[#a0a0a0] uppercase tracking-wide block mb-1.5">File video (opzionale)</label>
-                <input
-                  type="file"
-                  accept="video/*"
-                  onChange={(e) => setFile(e.target.files?.[0] ?? null)}
-                  className="w-full text-sm text-[#a0a0a0] file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-[rgba(255,255,255,0.08)] file:text-[#f5f5f5] hover:file:bg-[rgba(255,255,255,0.12)]"
-                />
+                <label className="text-xs font-semibold text-[#a0a0a0] uppercase tracking-wide block mb-2">Sorgente video</label>
+                <div className="flex rounded-xl border border-[rgba(255,255,255,0.08)] overflow-hidden">
+                  <button
+                    onClick={() => setVideoSource("file")}
+                    className={`flex-1 flex items-center justify-center gap-1.5 py-2 text-xs font-semibold transition-colors cursor-pointer border-none ${videoSource === "file" ? "bg-[#F5A623] text-black" : "bg-transparent text-[#a0a0a0] hover:text-[#f5f5f5]"}`}
+                  >
+                    <HardDrive size={12} /> Carica file
+                  </button>
+                  <button
+                    onClick={() => setVideoSource("embed")}
+                    className={`flex-1 flex items-center justify-center gap-1.5 py-2 text-xs font-semibold transition-colors cursor-pointer border-none ${videoSource === "embed" ? "bg-[#F5A623] text-black" : "bg-transparent text-[#a0a0a0] hover:text-[#f5f5f5]"}`}
+                  >
+                    <LinkIcon size={12} /> YouTube / Vimeo
+                  </button>
+                </div>
               </div>
+
+              {videoSource === "file" ? (
+                <div>
+                  <label className="text-xs font-semibold text-[#a0a0a0] uppercase tracking-wide block mb-1.5">File video (opzionale)</label>
+                  <input
+                    type="file"
+                    accept="video/*"
+                    onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+                    className="w-full text-sm text-[#a0a0a0] file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-[rgba(255,255,255,0.08)] file:text-[#f5f5f5] hover:file:bg-[rgba(255,255,255,0.12)]"
+                  />
+                </div>
+              ) : (
+                <div>
+                  <label className="text-xs font-semibold text-[#a0a0a0] uppercase tracking-wide block mb-1.5">Link YouTube o Vimeo</label>
+                  <input
+                    value={embedUrl}
+                    onChange={(e) => setEmbedUrl(e.target.value)}
+                    placeholder="es. https://www.youtube.com/watch?v=..."
+                    className="w-full px-3 py-2.5 text-sm bg-[#0a0a0a] border border-[rgba(255,255,255,0.08)] rounded-xl text-[#f5f5f5] placeholder:text-[#444] outline-none focus:border-[rgba(245,166,35,0.5)] transition-colors"
+                  />
+                  <p className="text-xs text-[#555] mt-1.5">Incolla il link del video da YouTube o Vimeo. I commenti saranno disponibili senza timecode.</p>
+                </div>
+              )}
+
               <div className="flex gap-2 pt-1">
                 <button
-                  onClick={() => { setShowModal(false); setFile(null); }}
+                  onClick={() => { setShowModal(false); setFile(null); setEmbedUrl(""); setVideoSource("file"); }}
                   className="flex-1 py-2.5 text-sm font-medium text-[#a0a0a0] border border-[rgba(255,255,255,0.08)] rounded-xl hover:text-[#f5f5f5] transition-colors bg-transparent cursor-pointer"
                 >
                   Annulla

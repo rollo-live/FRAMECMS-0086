@@ -85,6 +85,7 @@ export const videos = new Hono()
       title: body.title,
       version: body.version ?? "v1",
       r2Key: body.r2Key ?? "",
+      embedUrl: body.embedUrl ?? null,
       duration: body.duration,
       shareToken,
     }).returning();
@@ -118,6 +119,7 @@ export const videos = new Hono()
       allowDownload: body.allowDownload ?? true,
       watermarkEnabled: body.watermarkEnabled ?? false,
       watermarkText: body.watermarkText ?? null,
+      embedUrl: body.embedUrl !== undefined ? (body.embedUrl ?? null) : undefined,
     }).where(and(eq(schema.videos.id, c.req.param("id")), eq(schema.videos.tenantId, tenantId))).returning();
     return c.json({ video }, 200);
   })
