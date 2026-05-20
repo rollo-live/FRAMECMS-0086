@@ -262,6 +262,7 @@ export const entrate = sqliteTable("entrate", {
   clientId: text("client_id").references(() => clients.id), // cliente opzionale
   beneficiario: text("beneficiario").notNull().default("split"), // "socio_a" | "socio_b" | "split"
   fattura: integer("fattura", { mode: "boolean" }).notNull().default(false),
+  speseOperatore: real("spese_operatore").default(0), // spese collaboratori da detrarre dal netto
   categoria: text("categoria").notNull().default("Altro"),
   note: text("note"),
   data: integer("data", { mode: "timestamp" }).$defaultFn(() => new Date()),

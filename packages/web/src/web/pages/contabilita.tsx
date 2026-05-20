@@ -26,6 +26,7 @@ interface Entrata {
   clientName?: string | null;
   beneficiario: "socio_a" | "socio_b" | "split";
   fattura: boolean;
+  speseOperatore?: number | null;
   categoria: string;
   note?: string | null;
   data: string;
@@ -47,6 +48,7 @@ interface Riepilogo {
   uscite: { totale: number; socioA: number; socioB: number; studio: number; condivise: number };
   netto: { socioA: number; socioB: number; studio: number };
   accantonamento: { totale: number; socioA: number; socioB: number };
+  speseOperatore: { totale: number };
   saldo: { socioA: number; socioB: number };
   compensazione: { debitore: string; creditore: string; importo: number; importoLordo: number; pareggiato: number; descrizione: string };
 }
@@ -290,6 +292,7 @@ function EntrataForm({ initial, settings, clients, onSave, onClose }: {
     importo: initial?.importo?.toString() ?? "",
     acconto: initial?.acconto != null ? String(initial.acconto) : "",
     saldoRicevuto: initial?.saldoRicevuto != null ? String(initial.saldoRicevuto) : "",
+    speseOperatore: initial?.speseOperatore != null ? String(initial.speseOperatore) : "",
     clientId: initial?.clientId ?? "",
     beneficiario: (initial?.beneficiario ?? "split") as Entrata["beneficiario"],
     fattura: initial?.fattura ?? false,
@@ -306,8 +309,9 @@ function EntrataForm({ initial, settings, clients, onSave, onClose }: {
   const saldoNum = parseFloat(form.saldoRicevuto || "0") || 0;
   const ricevutoTotale = accontoNum + saldoNum;
   const residuo = importoNum - ricevutoTotale;
+  const speseOpNum = parseFloat(form.speseOperatore || "0") || 0;
   const accForf = form.fattura ? importoNum * (settings.forfettarioBase / 100) * (settings.accAntonamentoRate / 100) : 0;
-  const netto = importoNum - accForf;
+  const netto = importoNum - accForf - speseOpNum;
 
   const handleSave = async () => {
     if (!form.descrizione.trim()) { setError("Inserisci una descrizione"); return; }
@@ -318,6 +322,7 @@ function EntrataForm({ initial, settings, clients, onSave, onClose }: {
       importo: importoNum,
       acconto: accontoNum || null,
       saldoRicevuto: saldoNum || null,
+      speseOperatore: speseOpNum || 0,
       clientId: form.clientId || null,
       beneficiario: form.beneficiario,
       fattura: form.fattura,
@@ -392,11 +397,16 @@ function EntrataForm({ initial, settings, clients, onSave, onClose }: {
           {CATEGORIE_ENTRATE.map(c => <option key={c} value={c}>{c}</option>)}
         </select>
       </FormField>
+      <FormField label="Spese Operatore (€)" sub="Collaboratori da detrarre dal netto">
+        <input className={inputCls} type="number" min="0" step="0.01" value={form.speseOperatore} onChange={e => set("speseOperatore", e.target.value)} placeholder="0.00" />
+      </FormField>
+
       <Toggle value={form.fattura} onChange={v => set("fattura", v)} label="Fattura emessa" sub="Calcola accantonamento forfettario" />
-      {form.fattura && importoNum > 0 && (
+      {(form.fattura || speseOpNum > 0) && importoNum > 0 && (
         <div className="bg-[#1a1200] border border-[rgba(245,166,35,0.2)] rounded-xl p-4 space-y-2">
           <div className="flex justify-between text-sm"><span className="text-[#888]">Lordo</span><span className="text-[#f5f5f5] font-medium">{fmt(importoNum)}</span></div>
-          <div className="flex justify-between text-sm"><span className="text-[#888]">Accantonamento ({settings.forfettarioBase}% × {settings.accAntonamentoRate}%)</span><span className="text-[#F5A623]">−{fmt(accForf)}</span></div>
+          {form.fattura && <div className="flex justify-between text-sm"><span className="text-[#888]">Accantonamento ({settings.forfettarioBase}% × {settings.accAntonamentoRate}%)</span><span className="text-[#F5A623]">−{fmt(accForf)}</span></div>}
+          {speseOpNum > 0 && <div className="flex justify-between text-sm"><span className="text-[#888]">Spese operatore</span><span className="text-[#ef4444]">−{fmt(speseOpNum)}</span></div>}
           <div className="flex justify-between text-sm border-t border-[rgba(255,255,255,0.06)] pt-2"><span className="text-[#888] font-semibold">Netto Reale</span><span className="text-[#4CAF50] font-bold">{fmt(netto)}</span></div>
         </div>
       )}
@@ -977,6 +987,9 @@ export default function Contabilita() {
               <StatCard label="Entrate Totali" value={fmt(riepilogo.entrate.totale)} color="bg-[#4CAF50]/20 text-[#4CAF50]" icon={TrendingUp} />
               <StatCard label="Uscite Totali" value={fmt(riepilogo.uscite.totale)} color="bg-[#ef4444]/20 text-[#ef4444]" icon={TrendingDown} />
               <StatCard label="Accantonamento" value={fmt(riepilogo.accantonamento.totale)} sub={`${settings.forfettarioBase}%×${settings.accAntonamentoRate}% su fatturato`} color="bg-[#F5A623]/20 text-[#F5A623]" icon={PiggyBank} />
+              {riepilogo.speseOperatore?.totale > 0 && (
+                <StatCard label="Spese Operatore" value={fmt(riepilogo.speseOperatore.totale)} sub="Collaboratori" color="bg-[#ef4444]/20 text-[#ef4444]" icon={TrendingDown} />
+              )}
               <StatCard label="Netto Studio" value={fmt(riepilogo.netto.studio)} color="bg-[#8b5cf6]/20 text-[#8b5cf6]" icon={Wallet} />
             </div>
 
@@ -1071,6 +1084,7 @@ export default function Contabilita() {
               <div className="space-y-2">
                 {entrate.map(e => {
                   const accForf = e.fattura ? e.importo * (settings.forfettarioBase / 100) * (settings.accAntonamentoRate / 100) : 0;
+                  const speseOp = e.speseOperatore ?? 0;
                   const accontoRic = e.acconto ?? 0;
                   const saldoRic = e.saldoRicevuto ?? 0;
                   const ricevuto = accontoRic + saldoRic;
@@ -1096,7 +1110,8 @@ export default function Contabilita() {
                             : residuo > 0.01 && ricevuto > 0
                               ? <span className="text-[#F5A623]">Da incassare {fmt(residuo)}</span>
                               : null}
-                          {accForf > 0 && <span className="text-[#888]">Netto <span className="text-[#4CAF50]">{fmt(e.importo - accForf)}</span></span>}
+                          {speseOp > 0 && <span className="text-[#888]">Op. <span className="text-[#ef4444]">−{fmt(speseOp)}</span></span>}
+                          {(accForf > 0 || speseOp > 0) && <span className="text-[#888]">Netto <span className="text-[#4CAF50]">{fmt(e.importo - accForf - speseOp)}</span></span>}
                         </div>
                       </div>
                       <div className="text-right flex-shrink-0">

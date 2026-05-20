@@ -6,6 +6,15 @@ import { nanoid } from "../lib/id";
 import { requireAuth } from "../middleware/auth";
 import { validateBody, EntrataSchema, EntrataUpdateSchema } from "../lib/validate";
 
+// Helper: calcola netto reale sottraendo accantonamento e spese operatore
+function calcNettoReale(importo: number, fattura: boolean, forfBase: number, accRate: number, speseOperatore: number) {
+  const acc = fattura ? importo * forfBase * accRate : 0;
+  return importo - acc - speseOperatore;
+}
+function calcAccantonamento(importo: number, fattura: boolean, forfBase: number, accRate: number) {
+  return fattura ? importo * forfBase * accRate : 0;
+}
+
 /**
  * Ritorna il tenantId dell'utente.
  * Se l'utente non ha ancora un profilo/tenant, ne crea uno automaticamente.
@@ -137,6 +146,7 @@ export const contabilita = new Hono()
           clientName: schema.clients.name,
           beneficiario: schema.entrate.beneficiario,
           fattura: schema.entrate.fattura,
+          speseOperatore: schema.entrate.speseOperatore,
           categoria: schema.entrate.categoria,
           note: schema.entrate.note,
           data: schema.entrate.data,
@@ -172,6 +182,7 @@ export const contabilita = new Hono()
         clientId: body.clientId || null,
         beneficiario: body.beneficiario ?? "split",
         fattura: body.fattura === true || body.fattura === 1,
+        speseOperatore: body.speseOperatore != null ? Number(body.speseOperatore) : 0,
         categoria: body.categoria ?? "Altro",
         note: body.note || null,
         data: dataVal,
@@ -188,6 +199,7 @@ export const contabilita = new Hono()
           clientName: schema.clients.name,
           beneficiario: schema.entrate.beneficiario,
           fattura: schema.entrate.fattura,
+          speseOperatore: schema.entrate.speseOperatore,
           categoria: schema.entrate.categoria,
           note: schema.entrate.note,
           data: schema.entrate.data,
@@ -220,6 +232,7 @@ export const contabilita = new Hono()
       if (body.clientId !== undefined) updateData.clientId = body.clientId || null;
       if (body.beneficiario !== undefined) updateData.beneficiario = body.beneficiario;
       if (body.fattura !== undefined) updateData.fattura = body.fattura === true || body.fattura === 1;
+      if (body.speseOperatore !== undefined) updateData.speseOperatore = body.speseOperatore != null ? Number(body.speseOperatore) : 0;
       if (body.categoria !== undefined) updateData.categoria = body.categoria;
       if (body.note !== undefined) updateData.note = body.note || null;
       if (body.data !== undefined) updateData.data = new Date(body.data);
@@ -237,6 +250,7 @@ export const contabilita = new Hono()
           clientName: schema.clients.name,
           beneficiario: schema.entrate.beneficiario,
           fattura: schema.entrate.fattura,
+          speseOperatore: schema.entrate.speseOperatore,
           categoria: schema.entrate.categoria,
           note: schema.entrate.note,
           data: schema.entrate.data,
@@ -388,21 +402,19 @@ export const contabilita = new Hono()
       const entRows = await db.select().from(schema.entrate).where(entWhereClause);
       const uscRows = await db.select().from(schema.uscite).where(uscWhereClause);
 
-      const calcNetto = (importo: number, fattura: boolean) =>
-        fattura ? importo - importo * forfBase * accRate : importo;
-      const calcAcc = (importo: number, fattura: boolean) =>
-        fattura ? importo * forfBase * accRate : 0;
-
       let entrateSocioA = 0, entrateSocioB = 0, entrateStudio = 0;
       let nettoSocioA = 0, nettoSocioB = 0;
       let accantonamentoA = 0, accantonamentoB = 0;
       let totaleEntrate = 0, totaleAccantonamento = 0;
+      let totaleSpeseOperatore = 0;
 
       for (const e of entRows) {
-        const netto = calcNetto(e.importo, e.fattura);
-        const acc = calcAcc(e.importo, e.fattura);
+        const speseOp = e.speseOperatore ?? 0;
+        const acc = calcAccantonamento(e.importo, e.fattura, forfBase, accRate);
+        const netto = calcNettoReale(e.importo, e.fattura, forfBase, accRate, speseOp);
         totaleEntrate += e.importo;
         totaleAccantonamento += acc;
+        totaleSpeseOperatore += speseOp;
         if (e.beneficiario === "socio_a") {
           entrateSocioA += e.importo; nettoSocioA += netto; accantonamentoA += acc;
         } else if (e.beneficiario === "socio_b") {
@@ -481,6 +493,7 @@ export const contabilita = new Hono()
         uscite: { totale: totaleUscite, socioA: usciteSocioA, socioB: usciteSocioB, studio: usciteStudio, condivise: usciteCondivise },
         netto: { socioA: nettoSocioA, socioB: nettoSocioB, studio: nettoSocioA + nettoSocioB },
         accantonamento: { totale: totaleAccantonamento, socioA: accantonamentoA, socioB: accantonamentoB },
+        speseOperatore: { totale: totaleSpeseOperatore },
         saldo: { socioA: nettoSocioA - usciteSocioA, socioB: nettoSocioB - usciteSocioB },
         compensazione,
       }, 200);
@@ -518,7 +531,9 @@ export const contabilita = new Hono()
           const totEnt = ents.reduce((s, e) => s + e.importo, 0);
           const totUsc = uscs.reduce((s, u) => s + u.importo, 0);
           const totAcc = ents.filter(e => e.fattura).reduce((s, e) => s + e.importo * forfBase * accRate, 0);
-          return { label, entrate: totEnt, uscite: totUsc, accantonamento: totAcc, netto: totEnt - totUsc };
+          const totSpeseOp = ents.reduce((s, e) => s + (e.speseOperatore ?? 0), 0);
+          const nettoReale = totEnt - totAcc - totSpeseOp;
+          return { label, entrate: totEnt, uscite: totUsc, accantonamento: totAcc, speseOperatore: totSpeseOp, netto: nettoReale };
         })
       );
       return c.json(trend, 200);

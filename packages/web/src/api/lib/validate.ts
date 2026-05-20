@@ -75,6 +75,7 @@ export const EntrataSchema = z.object({
   clientId: z.string().optional().nullable(),
   beneficiario: z.enum(["split", "alessio", "gianluca"]).optional(),
   fattura: z.boolean().optional(),
+  speseOperatore: z.number().min(0).optional(),
   categoria: z.string().max(100).optional(),
   note: z.string().max(2000).optional().nullable(),
   data: z.string().optional().nullable(),
