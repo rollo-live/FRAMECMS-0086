@@ -79,8 +79,8 @@ export const QuoteUpdateSchema = QuoteSchema.partial().extend({
 export const EntrataSchema = z.object({
   descrizione: z.string().min(1, "Descrizione obbligatoria").max(500),
   importo: z.number().min(0, "Importo non valido"),
-  acconto: z.number().min(0).optional(),
-  saldoRicevuto: z.number().min(0).optional(),
+  acconto: z.number().min(0).optional().nullable(),
+  saldoRicevuto: z.number().min(0).optional().nullable(),
   clientId: z.string().optional().nullable(),
   beneficiario: z.enum(["split", "socio_a", "socio_b"]).optional(),
   fattura: z.boolean().optional(),

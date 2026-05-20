@@ -9,11 +9,16 @@ import { z } from "zod/v4";
 const ChannelSchema = z.object({
   name: z.string().min(1).max(200),
   slug: z.string().min(1).max(100).regex(/^[a-z0-9-]+$/, "Solo lettere minuscole, numeri e trattini"),
-  notifyEmail: z.string().email(),
-  replyEmail: z.string().email(),
+  notifyEmail: z.string().email().optional().nullable(),
+  replyToEmail: z.string().email().optional().nullable(),
+  // accept both naming variants from frontend
+  replyEmail: z.string().email().optional().nullable(),
+  logoUrl: z.string().optional().nullable(),
   logo: z.string().optional().nullable(),
-  primaryColor: z.string().max(20).optional(),
+  color: z.string().max(20).optional().nullable(),
+  primaryColor: z.string().max(20).optional().nullable(),
   description: z.string().max(1000).optional().nullable(),
+  isActive: z.boolean().optional(),
   active: z.boolean().optional(),
 });
 
@@ -31,8 +36,16 @@ export const bookingChannels = new Hono()
     const user = c.get("user")!;
     const tenantId = await getTenantId(user.id);
     if (!tenantId) return c.json({ channels: [] }, 200);
-    const channels = await db.select().from(schema.bookingChannels)
+    const rows = await db.select().from(schema.bookingChannels)
       .where(eq(schema.bookingChannels.tenantId, tenantId));
+    // Normalize to frontend field names
+    const channels = rows.map((r) => ({
+      ...r,
+      color: r.primaryColor,
+      logoUrl: r.logo,
+      replyToEmail: r.replyEmail,
+      isActive: r.active,
+    }));
     return c.json({ channels }, 200);
   })
 
@@ -57,12 +70,12 @@ export const bookingChannels = new Hono()
       tenantId,
       name: d.name,
       slug: d.slug,
-      notifyEmail: d.notifyEmail,
-      replyEmail: d.replyEmail,
-      logo: d.logo ?? null,
-      primaryColor: d.primaryColor ?? "#F5A623",
+      notifyEmail: d.notifyEmail ?? null,
+      replyEmail: d.replyToEmail ?? d.replyEmail ?? null,
+      logo: d.logoUrl ?? d.logo ?? null,
+      primaryColor: d.color ?? d.primaryColor ?? "#F5A623",
       description: d.description ?? null,
-      active: d.active ?? true,
+      active: d.isActive ?? d.active ?? true,
     }).returning();
     return c.json({ channel: ch }, 201);
   })
@@ -85,10 +98,59 @@ export const bookingChannels = new Hono()
       if (existing && existing.id !== c.req.param("id")) return c.json({ error: "Slug già in uso" }, 409);
     }
 
-    const [ch] = await db.update(schema.bookingChannels).set({
-      ...d,
-      updatedAt: new Date(),
-    }).where(and(
+    const updateData: Record<string, any> = { updatedAt: new Date() };
+    if (d.name !== undefined) updateData.name = d.name;
+    if (d.slug !== undefined) updateData.slug = d.slug;
+    if (d.description !== undefined) updateData.description = d.description;
+    if (d.notifyEmail !== undefined) updateData.notifyEmail = d.notifyEmail;
+    if (d.replyToEmail !== undefined) updateData.replyEmail = d.replyToEmail;
+    else if (d.replyEmail !== undefined) updateData.replyEmail = d.replyEmail;
+    if (d.logoUrl !== undefined) updateData.logo = d.logoUrl;
+    else if (d.logo !== undefined) updateData.logo = d.logo;
+    if (d.color !== undefined) updateData.primaryColor = d.color;
+    else if (d.primaryColor !== undefined) updateData.primaryColor = d.primaryColor;
+    if (d.isActive !== undefined) updateData.active = d.isActive;
+    else if (d.active !== undefined) updateData.active = d.active;
+
+    const [ch] = await db.update(schema.bookingChannels).set(updateData).where(and(
+      eq(schema.bookingChannels.id, c.req.param("id")),
+      eq(schema.bookingChannels.tenantId, tenantId)
+    )).returning();
+    return c.json({ channel: ch }, 200);
+  })
+
+  // PATCH /api/booking-channels/:id — alias di PUT
+  .patch("/:id", requireAuth, async (c) => {
+    const user = c.get("user")!;
+    const tenantId = await getTenantId(user.id);
+    if (!tenantId) return c.json({ error: "Non trovato" }, 404);
+    const body = await c.req.json().catch(() => null);
+    if (!body) return c.json({ error: "Body mancante" }, 400);
+    const parsed = ChannelUpdateSchema.safeParse(body);
+    if (!parsed.success) return c.json({ error: "Dati non validi", issues: parsed.error.issues }, 400);
+    const d = parsed.data;
+
+    if (d.slug) {
+      const existing = await db.select().from(schema.bookingChannels)
+        .where(eq(schema.bookingChannels.slug, d.slug)).get();
+      if (existing && existing.id !== c.req.param("id")) return c.json({ error: "Slug già in uso" }, 409);
+    }
+
+    const updateData: Record<string, any> = { updatedAt: new Date() };
+    if (d.name !== undefined) updateData.name = d.name;
+    if (d.slug !== undefined) updateData.slug = d.slug;
+    if (d.description !== undefined) updateData.description = d.description;
+    if (d.notifyEmail !== undefined) updateData.notifyEmail = d.notifyEmail;
+    if (d.replyToEmail !== undefined) updateData.replyEmail = d.replyToEmail;
+    else if (d.replyEmail !== undefined) updateData.replyEmail = d.replyEmail;
+    if (d.logoUrl !== undefined) updateData.logo = d.logoUrl;
+    else if (d.logo !== undefined) updateData.logo = d.logo;
+    if (d.color !== undefined) updateData.primaryColor = d.color;
+    else if (d.primaryColor !== undefined) updateData.primaryColor = d.primaryColor;
+    if (d.isActive !== undefined) updateData.active = d.isActive;
+    else if (d.active !== undefined) updateData.active = d.active;
+
+    const [ch] = await db.update(schema.bookingChannels).set(updateData).where(and(
       eq(schema.bookingChannels.id, c.req.param("id")),
       eq(schema.bookingChannels.tenantId, tenantId)
     )).returning();
