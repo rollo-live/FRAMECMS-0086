@@ -467,11 +467,15 @@ export default function Impostazioni() {
     setTwoFaMsg(null);
     try {
       const res = await (authClient as any).twoFactor.enable({ password: twoFaPassword, issuer: "FRAME" });
-      if (res.error) throw new Error(res.error.message ?? "Errore");
+      if (res.error) {
+        console.error("[2FA enable error]", res.error);
+        throw new Error(res.error.message ?? res.error.statusText ?? "Errore durante l'attivazione");
+      }
       setTwoFaSetup({ totpURI: res.data.totpURI, backupCodes: res.data.backupCodes ?? [] });
       setTwoFaStep("setup");
       setTwoFaPassword("");
     } catch (e: any) {
+      console.error("[2FA enable catch]", e);
       setTwoFaMsg({ text: e.message ?? "Errore durante l'attivazione", type: "err" });
     } finally {
       setTwoFaLoading(false);
